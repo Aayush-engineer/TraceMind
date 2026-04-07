@@ -6,7 +6,11 @@ import Evals     from "./pages/Evals"
 import Datasets  from "./pages/Datasets"
 import Layout    from "./components/Layout"
 
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:8000"
+const API_URL = import.meta.env.VITE_API_URL;
+
+if (!API_URL) {
+  throw new Error("VITE_API_URL is not defined");
+}
 
 export interface AppContext {
   projectId: string
