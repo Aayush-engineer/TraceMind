@@ -55,6 +55,7 @@ export default function Dashboard({ projectId, apiKey, apiUrl }: Props) {
     "Authorization": `Bearer ${apiKey}`,
     "Content-Type":  "application/json"
   }
+  
 
   const fetchAll = useCallback(async () => {
     try {
@@ -231,7 +232,8 @@ export default function Dashboard({ projectId, apiKey, apiUrl }: Props) {
         <div style={{
           display: "grid",
           gridTemplateColumns: "repeat(4, 1fr)",
-          gap: "12px", marginBottom: "20px"
+          gap: "12px", marginBottom: "20px",
+          
         }}>
           {[
             {
@@ -274,8 +276,10 @@ export default function Dashboard({ projectId, apiKey, apiUrl }: Props) {
             <div key={card.label} style={{
               background: "#1e293b",
               border: "1px solid #334155",
-              borderRadius: "10px",
+              // borderRadius: "10px",
               padding: "16px 18px",
+              borderTop: `2px solid ${card.color}`,
+              borderRadius: "0 0 10px 10px",
               position: "relative",
               overflow: "hidden"
             }}>

@@ -37,15 +37,17 @@ export default function Layout({ children, ctx, onLogout }: Props) {
         {/* Logo */}
         <div style={{
           padding: "18px 16px",
+          
           borderBottom: "1px solid #334155",
           display: "flex", alignItems: "center", gap: "8px"
         }}>
           <div style={{
-            width: "26px", height: "26px", background: "#6366f1",
+            width: "26px", height: "26px",
             borderRadius: "6px", display: "flex", alignItems: "center",
+            background: "linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%)",
             justifyContent: "center", fontSize: "13px",
             fontWeight: 700, color: "white"
-          }}>E</div>
+          }}>T</div>
           <span style={{ fontWeight: 600, fontSize: "14px", color: "#f1f5f9" }}>
             TraceMind
           </span>

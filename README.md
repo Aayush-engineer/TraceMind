@@ -520,7 +520,7 @@ MIT — use it, modify it, ship it.
 
 <div align="center">
 
-Built by [Your Name](https://github.com/Aayush-engineer) · [LinkedIn](https://www.linkedin.com/in/aayush-kumar-aba034239/)
+Built by [Aayush kumar](https://github.com/Aayush-engineer) · [LinkedIn](https://www.linkedin.com/in/aayush-kumar-aba034239/)
 
 If this helped you, consider giving it a ⭐
 

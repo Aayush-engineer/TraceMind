@@ -162,13 +162,22 @@ async def _execute_eval_run(run_id: str, examples: list, req: RunEvalRequest):
         db.close()
 
 @router.get("/{run_id}")
-async def get_eval_run(run_id: str, db=Depends(get_db)):
-    run = db.query(EvalRun).filter_by(id=run_id).first()
+async def get_eval_run(run_id: str, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select
+    from fastapi import HTTPException
+
+    run_result = await db.execute(
+        select(EvalRun).where(EvalRun.id == run_id)
+    )
+    run = run_result.scalar_one_or_none()
     if not run:
-        from fastapi import HTTPException
         raise HTTPException(404, "Eval run not found")
 
-    results = db.query(EvalResult).filter_by(run_id=run_id).all()
+    results_q = await db.execute(
+        select(EvalResult).where(EvalResult.run_id == run_id)
+    )
+    results = results_q.scalars().all()
+
     return {
         "run_id":       run.id,
         "status":       run.status,
@@ -179,7 +188,7 @@ async def get_eval_run(run_id: str, db=Depends(get_db)):
         "failed":       run.failed_cases,
         "results": [
             {"input": r.input[:100], "score": r.judge_score,
-             "passed": r.passed, "reasoning": r.judge_reasoning[:150]}
+             "passed": r.passed, "reasoning": r.judge_reasoning[:150] if r.judge_reasoning else ""}
             for r in results
         ]
     }
