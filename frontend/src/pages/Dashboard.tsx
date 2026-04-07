@@ -156,11 +156,11 @@ export default function Dashboard({ projectId, apiKey, apiUrl }: Props) {
     }
   }, [projectId])
 
-  function logout() {
-    localStorage.removeItem("ef_api_key")
-    localStorage.removeItem("ef_project_id")
-    window.location.reload()
-  }
+  // function logout() {
+  //   localStorage.removeItem("ef_api_key")
+  //   localStorage.removeItem("ef_project_id")
+  //   window.location.reload()
+  // }
 
   const scoreColor = (s: number) =>
     s >= 8 ? "#10b981" : s >= 6 ? "#f59e0b" : "#ef4444"
@@ -380,7 +380,10 @@ export default function Dashboard({ projectId, apiKey, apiUrl }: Props) {
                     }}
                     labelStyle={{ color: "#94a3b8" }}
                     itemStyle={{ color: "#6366f1" }}
-                    formatter={(v: number) => [v.toFixed(2), "Avg score"]}
+                    formatter={(v) => [
+                      typeof v === "number" ? v.toFixed(2) : "0.00",
+                      "Avg score"
+                    ]}
                   />
                   <ReferenceLine
                     y={7} stroke="#ef4444" strokeDasharray="4 4" strokeWidth={1}
