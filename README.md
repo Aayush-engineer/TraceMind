@@ -11,8 +11,6 @@ Open-source AI evaluation and observability platform — self-hosted, free, prod
 [![React](https://img.shields.io/badge/React-18-blue.svg)](https://react.dev)
 [![Tests](https://img.shields.io/badge/tests-passing-green.svg)](#)
 
-[Live Demo](#) · [Quick Start](#quick-start) · [Documentation](#documentation) · [Why TraceMind](#the-problem)
-
 </div>
 
 ---
