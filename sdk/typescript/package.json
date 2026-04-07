@@ -1,0 +1,22 @@
+{
+  "name":        "tracemind",
+  "version":     "0.1.0",
+  "description": "LLM observability and evaluation SDK for TypeScript/Node.js",
+  "main":        "dist/index.js",
+  "types":       "dist/index.d.ts",
+  "scripts": {
+    "build":     "tsc",
+    "prepublish": "npm run build"
+  },
+  "keywords":    ["llm", "evaluation", "observability", "ai", "tracing"],
+  "license":     "MIT",
+  "dependencies": {
+    "node-fetch": "^3.3.2",
+    "uuid":       "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node":  "^20.0.0",
+    "@types/uuid":  "^9.0.0",
+    "typescript":   "^5.0.0"
+  }
+}

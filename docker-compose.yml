@@ -1,0 +1,57 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB:       evalforge
+      POSTGRES_USER:     evalforge
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-evalforge_dev}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:     ["CMD-SHELL", "pg_isready -U evalforge"]
+      interval: 5s
+      timeout:  3s
+      retries:  5
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test:     ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout:  3s
+      retries:  5
+
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL:      postgresql://evalforge:${POSTGRES_PASSWORD:-evalforge_dev}@postgres/evalforge
+      REDIS_URL:         redis://redis:6379
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      OPENAI_API_KEY:    ${OPENAI_API_KEY}
+      SECRET_KEY:        ${SECRET_KEY:-change_in_production}
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis:    { condition: service_healthy }
+    volumes:
+      - ./backend:/app
+      - chroma_data:/app/data/chroma
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: http://localhost:8000
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend/src:/app/src
+
+volumes:
+  postgres_data:
+  chroma_data:      # persist ChromaDB embeddings across restarts
