@@ -1,38 +1,13 @@
 @"
-# Python
 __pycache__/
-*.py[cod]
-*.pyo
+*.pyc
 .venv/
 venv/
-*.egg-info/
-dist/
-build/
-.pytest_cache/
-
-# Environment
-.env
-*.env.local
-
-# Database
 *.db
-*.sqlite3
 backend/data/
-
-# Node
+.env
 node_modules/
 frontend/dist/
-frontend/.venv/
-
-# IDE
-.vscode/
-.idea/
-*.swp
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-"@ | Out-File -FilePath ".gitignore" -Encoding UTF8
+.pytest_cache/
+*.egg-info/
+"@ | Out-File .gitignore -Encoding UTF8
