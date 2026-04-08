@@ -94,8 +94,10 @@ app = FastAPI(
 origins = [
     "http://localhost:3000",
     "http://localhost:5173",
-    os.getenv("FRONTEND_URL", "https://tracemind-1kf0h2tak-aayush-s-projects.vercel.app")
+    "https://tracemind-1kf0h2tak-aayush-s-projects.vercel.app",
+    os.getenv("FRONTEND_URL", ""),
 ]
+origins = [o for o in origins if o]
 
 app.add_middleware(
     CORSMiddleware,

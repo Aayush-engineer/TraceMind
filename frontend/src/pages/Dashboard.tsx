@@ -128,34 +128,36 @@ export default function Dashboard({ projectId, apiKey, apiUrl }: Props) {
   }, [fetchAll])
 
   useEffect(() => {
+    if (!apiUrl || !projectId) return
+
     let ws: WebSocket | null = null
     const timer = setTimeout(() => {
-        try {
+      try {
         const wsUrl = apiUrl.replace("https://", "wss://").replace("http://", "ws://")
         ws = new WebSocket(`${wsUrl}/ws/${projectId}`)
         ws.onmessage = (e) => {
-            try {
+          try {
             const data = JSON.parse(e.data)
             if (data.type === "metrics_update") setStats({
-                avg_score:   Number(data.stats?.avg_score   || 0),
-                pass_rate:   Number(data.stats?.pass_rate   || 0),
-                total_calls: Number(data.stats?.total_calls || 0),
-                cost:        Number(data.stats?.cost        || 0),
+              avg_score:   Number(data.stats?.avg_score   || 0),
+              pass_rate:   Number(data.stats?.pass_rate   || 0),
+              total_calls: Number(data.stats?.total_calls || 0),
+              cost:        Number(data.stats?.cost        || 0),
             })
             if (data.type === "new_alert") {
-                setAlerts(prev => [data.alert, ...prev].slice(0, 10))
+              setAlerts(prev => [data.alert, ...prev].slice(0, 10))
             }
-            } catch { /* ignore parse errors */ }
+          } catch { /* ignore parse errors */ }
         }
         ws.onerror = () => { /* WebSocket optional — ignore errors */ }
-        } catch { /* WebSocket not available */ }
-    }, 1000)  // wait 1 second before connecting
+      } catch { /* WebSocket not available */ }
+    }, 1000)
 
     return () => {
-        clearTimeout(timer)
-        ws?.close()
+      clearTimeout(timer)
+      ws?.close()
     }
-  }, [projectId])
+  }, [projectId, apiUrl])
 
   // function logout() {
   //   localStorage.removeItem("ef_api_key")
