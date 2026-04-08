@@ -131,7 +131,8 @@ export default function Dashboard({ projectId, apiKey, apiUrl }: Props) {
     let ws: WebSocket | null = null
     const timer = setTimeout(() => {
         try {
-        ws = new WebSocket(`ws://localhost:8000/ws/${projectId}`)
+        const wsUrl = apiUrl.replace("https://", "wss://").replace("http://", "ws://")
+        ws = new WebSocket(`${wsUrl}/ws/${projectId}`)
         ws.onmessage = (e) => {
             try {
             const data = JSON.parse(e.data)
