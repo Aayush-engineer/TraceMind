@@ -96,12 +96,38 @@ def get_sync_db() -> Session:
 
 
 async def init_db():
-    if DATABASE_URL.startswith("sqlite"):
-        import os
-        os.makedirs("./data", exist_ok=True)
-        Base.metadata.create_all(bind=sync_engine)
-    else:
-        async with async_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+    """
+    Run Alembic migrations on startup instead of create_all.
+    This is the production-correct approach — tracks schema versions,
+    supports rollback, never drops existing data.
+    """
+    import subprocess
+    import sys
+    from pathlib import Path
 
-    print(f"  DB ready: {DATABASE_URL.split('@')[-1]}")  # don't log credentials
+    backend_dir = Path(__file__).parent.parent
+    try:
+        result = subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"],
+            cwd=str(backend_dir),
+            capture_output=True,
+            text=True,
+            timeout=30
+        )
+        if result.returncode == 0:
+            print(f"  DB migrations applied successfully")
+        else:
+            # Fall back to create_all if alembic fails
+            print(f"  Alembic warning: {result.stderr[:200]}")
+            print(f"  Falling back to create_all")
+            if _is_sqlite:
+                Base.metadata.create_all(bind=sync_engine)
+            else:
+                async with async_engine.begin() as conn:
+                    await conn.run_sync(Base.metadata.create_all)
+    except Exception as e:
+        print(f"  Migration error: {e} — using create_all fallback")
+        if _is_sqlite:
+            Base.metadata.create_all(bind=sync_engine)
+
+    print(f"  DB ready: {DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else DATABASE_URL}")
