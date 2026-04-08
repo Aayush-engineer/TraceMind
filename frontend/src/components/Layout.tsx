@@ -62,8 +62,21 @@ export default function Layout({ children, ctx, onLogout }: Props) {
                       textTransform: "uppercase", letterSpacing: "0.06em" }}>
             Project
           </p>
-          <p style={{ fontSize: "12px", color: "#94a3b8", margin: 0,
-                      overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <p
+            onClick={() => {
+              navigator.clipboard.writeText(ctx.projectId)
+              // Brief visual feedback
+              const el = document.getElementById("proj-id-display")
+              if (el) { el.textContent = "Copied!"; setTimeout(() => { if(el) el.textContent = ctx.projectId.slice(0,16)+"..." }, 1500) }
+            }}
+            id="proj-id-display"
+            title="Click to copy project ID"
+            style={{
+              fontSize: "12px", color: "#94a3b8", margin: 0,
+              overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+              cursor: "pointer"
+            }}
+          >
             {ctx.projectId.slice(0, 16)}...
           </p>
         </div>

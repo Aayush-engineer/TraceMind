@@ -5,6 +5,8 @@ import Traces    from "./pages/Traces"
 import Evals     from "./pages/Evals"
 import Datasets  from "./pages/Datasets"
 import Layout    from "./components/Layout"
+import { ToastProvider } from "./components/Toast"
+import ErrorBoundary from "./components/ErrorBoundary"
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -110,18 +112,22 @@ export default function App() {
     setCtx({ projectId: pid, apiKey: key, apiUrl: API_URL })} />
 
   return (
-    <BrowserRouter>
-      <Layout ctx={ctx} onLogout={() => {
-        localStorage.clear(); setCtx(null)
-      }}>
-        <Routes>
-          <Route path="/"         element={<Dashboard {...ctx} />} />
-          <Route path="/traces"   element={<Traces    {...ctx} />} />
-          <Route path="/evals"    element={<Evals     {...ctx} />} />
-          <Route path="/datasets" element={<Datasets  {...ctx} />} />
-          <Route path="*"         element={<Navigate to="/" />} />
-        </Routes>
-      </Layout>
-    </BrowserRouter>
+    <ToastProvider>
+      <ErrorBoundary>
+        <BrowserRouter>
+          <Layout ctx={ctx} onLogout={() => {
+            localStorage.clear(); setCtx(null)
+          }}>
+            <Routes>
+              <Route path="/"         element={<Dashboard {...ctx} />} />
+              <Route path="/traces"   element={<Traces    {...ctx} />} />
+              <Route path="/evals"    element={<Evals     {...ctx} />} />
+              <Route path="/datasets" element={<Datasets  {...ctx} />} />
+              <Route path="*"         element={<Navigate to="/" />} />
+            </Routes>
+          </Layout>
+        </BrowserRouter>
+      </ErrorBoundary>
+    </ToastProvider>
   )
 }
