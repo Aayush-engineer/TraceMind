@@ -9,6 +9,8 @@ from sqlalchemy import select
 from ..db.database import get_db
 from ..db.models   import Span, Project
 from ..core.auth import get_current_project
+from ..core.limiter import limiter
+from fastapi import Request
 
 
 router = APIRouter(dependencies=[Depends(get_current_project)])
@@ -35,7 +37,9 @@ class BatchSpanPayload(BaseModel):
 
 
 @router.post("/batch", status_code=202)
+@limiter.limit("300/minute")
 async def ingest_spans(
+    request: Request,
     payload: BatchSpanPayload,
     db:      AsyncSession = Depends(get_db)
 ):

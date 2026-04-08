@@ -12,6 +12,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from .db.database       import init_db
 from .api               import traces, evals, datasets, projects, alerts, metrics, agent
 from .worker.eval_worker import EvalWorker
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+from .core.limiter import limiter, rate_limit_exceeded_handler
+
 
 logging.basicConfig(
     level   = logging.INFO,
@@ -90,6 +94,9 @@ app = FastAPI(
     version     = "0.1.0",
     lifespan    = lifespan
 )
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
 origins = [
     "http://localhost:3000",

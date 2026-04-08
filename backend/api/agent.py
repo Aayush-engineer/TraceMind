@@ -12,6 +12,8 @@ from ..db.models      import Base
 from ..core.eval_agent import EvalAgent
 from ..db.models import AgentRun
 from ..core.auth import get_current_project
+from ..core.limiter import limiter
+from fastapi import Request
 
 router = APIRouter(dependencies=[Depends(get_current_project)])
 logger = logging.getLogger(__name__)
@@ -27,7 +29,9 @@ class AnalyzeRequest(BaseModel):
 # ── Routes ───────────────────────────────────────────────────────────────
 
 @router.post("/analyze")
+@limiter.limit("5/minute")
 async def analyze(
+    request: Request,
     req: AnalyzeRequest,
     bg:  BackgroundTasks,
     db:  AsyncSession = Depends(get_db)

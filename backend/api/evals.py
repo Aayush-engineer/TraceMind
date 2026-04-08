@@ -13,6 +13,8 @@ from ..db.models     import EvalRun, EvalResult, Dataset, DatasetExample
 from ..core.eval_engine       import run_eval_parallel
 from ..core.regression_detector import RegressionDetector
 from ..core.auth import get_current_project
+from ..core.limiter import limiter
+from fastapi import Request
 
 router = APIRouter(dependencies=[Depends(get_current_project)])
 detector  = RegressionDetector()
@@ -29,7 +31,9 @@ class RunEvalRequest(BaseModel):
     webhook_url:    Optional[str] = None
 
 @router.post("/run")
+@limiter.limit("10/minute")
 async def start_eval_run(
+    request: Request,
     req: RunEvalRequest,
     bg:  BackgroundTasks,
     db:  AsyncSession = Depends(get_db)
