@@ -95,6 +95,64 @@ class TraceMind:
             return wrapper
         return decorator
 
+    def trace_async(self, name: str = None, tags: list = None):
+        """
+        Async version of @trace — for async functions.
+
+        @tm.trace_async("async_handler")
+        async def handle(msg: str) -> str:
+            return await your_async_llm.complete(msg)
+        """
+        import functools
+
+        def decorator(func):
+            span_name = name or func.__name__
+
+            @functools.wraps(func)
+            async def wrapper(*args, **kwargs):
+                import uuid, time, json
+                trace_id = str(uuid.uuid4())
+                span_id  = str(uuid.uuid4())
+                t0       = time.time()
+                input_data = {
+                    "args":   [str(a)[:500] for a in args],
+                    "kwargs": {k: str(v)[:500] for k,v in kwargs.items()}
+                }
+                try:
+                    result   = await func(*args, **kwargs)
+                    duration = time.time() - t0
+                    self._buffer_span({
+                        "span_id":    span_id,
+                        "trace_id":   trace_id,
+                        "project":    self.project,
+                        "name":       span_name,
+                        "input":      json.dumps(input_data),
+                        "output":     str(result)[:2000],
+                        "duration_ms": round(duration * 1000, 1),
+                        "status":     "success",
+                        "tags":       tags or [],
+                        "timestamp":  t0
+                    })
+                    return result
+                except Exception as e:
+                    duration = time.time() - t0
+                    self._buffer_span({
+                        "span_id":    span_id,
+                        "trace_id":   trace_id,
+                        "project":    self.project,
+                        "name":       span_name,
+                        "input":      json.dumps(input_data),
+                        "output":     "",
+                        "error":      str(e)[:500],
+                        "duration_ms": round(duration * 1000, 1),
+                        "status":     "error",
+                        "tags":       tags or [],
+                        "timestamp":  t0
+                    })
+                    raise
+            return wrapper
+        return decorator
+
     def trace_ctx(self, name: str, **metadata):
         return _SpanContext(self, name, metadata)
 

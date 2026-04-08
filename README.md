@@ -17,6 +17,12 @@ Open-source AI evaluation and observability platform — self-hosted, free, no v
 
 **[→ Live Demo](https://tracemind.vercel.app)** · [Quick Start](#quick-start) · [SDK Docs](#sdk-usage) · [API Reference](#api-reference)
 
+---
+
+![Tracemind Demo](./docs/demo.gif)
+
+---
+
 </div>
 
 ---
@@ -29,8 +35,8 @@ Demo credentials — read-only, safe to share:
 
 | Field | Value |
 |-------|-------|
-| Project ID | `77a12c19-ae4` |
-| API Key | `ef_live_envlaFI5Zsk6vHL8RTXJa6fPE9zQJTK6WtydLoH1cJ4` |
+| Project ID | `d241a317-d94` |
+| API Key | `ef_live_ZvhtgKn9Zo8UrnvjEx3AJe1Bl3F62s_ae_5rx9eH-Ak` |
 
 > First load may take 30 seconds — free tier spins down after inactivity.
 
