@@ -94,6 +94,7 @@ app = FastAPI(
 origins = [
     "http://localhost:3000",
     "http://localhost:5173",
+    "https://tracemind.vercel.app",
     "https://tracemind-1kf0h2tak-aayush-s-projects.vercel.app",
     os.getenv("FRONTEND_URL", ""),
 ]
