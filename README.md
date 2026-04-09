@@ -94,6 +94,18 @@ Ask "why did quality drop yesterday?" and the ReAct agent searches past failures
 **4. Regression alerts**
 When quality drops below threshold, you get alerted. Slack webhook, or any HTTP endpoint.
 
+**5. Hallucination detection**
+Analyze any LLM response for factual errors, fabrications, and overconfident claims.
+Provide ground truth context for full factual grounding checks.
+
+**6. Prompt A/B testing with statistical significance**
+Compare two prompts on the same dataset. Get a definitive answer:
+is prompt B actually better, or is the difference just noise?
+Uses Mann-Whitney U test and Cohen's d — no guessing.
+
+**7. Live trace streaming**
+Watch LLM calls arrive in real time. Pause, filter, inspect.
+
 ---
 
 ## Quick Start
