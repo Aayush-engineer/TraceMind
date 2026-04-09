@@ -46,6 +46,64 @@ def chat(
     response = groq_client.chat.completions.create(**kwargs)
     return response.choices[0].message.content
 
+MODEL_COSTS = {
+    "llama-3.1-8b-instant":    {"input": 0.05,  "output": 0.08},   # Groq
+    "llama-3.3-70b-versatile": {"input": 0.59,  "output": 0.79},   # Groq
+    "gemma2-9b-it":            {"input": 0.20,  "output": 0.20},   # Groq
+    # Add more as needed
+}
+
+def estimate_cost(model: str, input_tokens: int, output_tokens: int) -> float:
+    """Estimate cost in USD for a model call."""
+    costs = MODEL_COSTS.get(model, {"input": 0.0, "output": 0.0})
+    return round(
+        (input_tokens  * costs["input"]  / 1_000_000) +
+        (output_tokens * costs["output"] / 1_000_000),
+        8
+    )
+
+
+def chat_with_usage(
+    messages:   list[dict],
+    system:     str  = "",
+    model:      str  = "fast",
+    max_tokens: int  = 1024,
+    json_mode:  bool = False,
+) -> tuple[str, dict]:
+    """
+    Like chat() but also returns token usage.
+
+    Returns:
+        (response_text, {"input_tokens": N, "output_tokens": N, "cost_usd": N})
+    """
+    resolved_model = FAST_MODEL if model == "fast" else SMART_MODEL
+
+    full_messages = []
+    if system:
+        full_messages.append({"role": "system", "content": system})
+    full_messages.extend(messages)
+
+    kwargs = {
+        "model":      resolved_model,
+        "messages":   full_messages,
+        "max_tokens": max_tokens,
+    }
+    if json_mode:
+        kwargs["response_format"] = {"type": "json_object"}
+
+    response = groq_client.chat.completions.create(**kwargs)
+
+    input_tokens  = response.usage.prompt_tokens     if response.usage else 0
+    output_tokens = response.usage.completion_tokens if response.usage else 0
+    cost          = estimate_cost(resolved_model, input_tokens, output_tokens)
+
+    return response.choices[0].message.content, {
+        "input_tokens":  input_tokens,
+        "output_tokens": output_tokens,
+        "cost_usd":      cost,
+        "model":         resolved_model,
+    }
+
 
 def embed(texts: list[str]) -> list[list[float]]:
     from sentence_transformers import SentenceTransformer

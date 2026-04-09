@@ -15,6 +15,8 @@ from .worker.eval_worker import EvalWorker
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 from .core.limiter import limiter, rate_limit_exceeded_handler
+from .api import hallucination
+from .api import ab_testing
 
 
 logging.basicConfig(
@@ -122,7 +124,8 @@ app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(alerts.router,   prefix="/api/alerts",   tags=["alerts"])
 app.include_router(metrics.router,  prefix="/api/metrics",  tags=["metrics"])
 app.include_router(agent.router,    prefix="/api/agent",    tags=["agent"])
-
+app.include_router(hallucination.router, prefix="/api/hallucination", tags=["hallucination"])
+app.include_router(ab_testing.router, prefix="/api/ab", tags=["ab-testing"])
 
 
 @app.websocket("/ws/{project_id}")
