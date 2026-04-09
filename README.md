@@ -25,23 +25,6 @@ Open-source AI evaluation and observability platform — self-hosted, free, no v
 
 </div>
 
----
-
-## Try the Live Demo
-
-**[tracemind.vercel.app](https://tracemind.vercel.app)**
-
-Demo credentials — read-only, safe to share:
-
-| Field | Value |
-|-------|-------|
-| Project ID | `d241a317-d94` |
-| API Key | `ef_live_ZvhtgKn9Zo8UrnvjEx3AJe1Bl3F62s_ae_5rx9eH-Ak` |
-
-> First load may take 30 seconds — free tier spins down after inactivity.
-
----
-
 ## The Problem
 
 You shipped an AI agent. It works great on day one.
