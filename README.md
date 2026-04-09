@@ -353,6 +353,9 @@ print(f"Passed — {result.pass_rate:.0%} pass rate")
 | **Traces** | Every LLM call with colored score badge, searchable by text, click to inspect full input/output |
 | **Evals** | Eval run history, per-case pass/fail results, reasoning from judge |
 | **Datasets** | Golden test case management, add examples from UI, filter by category |
+| **Live** | Real-time trace streaming — watch calls as they happen, pause/resume |
+| **Playground** | Test prompts against datasets from the UI — single eval or A/B test |
+| **Hallucination** | Analyze responses for factual errors, fabrications, overconfidence |
 
 ---
 
