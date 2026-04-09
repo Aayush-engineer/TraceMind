@@ -7,6 +7,9 @@ import Datasets  from "./pages/Datasets"
 import Layout    from "./components/Layout"
 import { ToastProvider } from "./components/Toast"
 import ErrorBoundary from "./components/ErrorBoundary"
+import Live          from "./pages/Live"
+import Playground    from "./pages/Playground"
+import Hallucination from "./pages/Hallucination"
 
 const API_URL = import.meta.env.VITE_API_URL;
 
@@ -124,6 +127,9 @@ export default function App() {
               <Route path="/evals"    element={<Evals     {...ctx} />} />
               <Route path="/datasets" element={<Datasets  {...ctx} />} />
               <Route path="*"         element={<Navigate to="/" />} />
+              <Route path="/live"          element={<Live          {...ctx} />} />
+              <Route path="/playground"    element={<Playground    {...ctx} />} />
+              <Route path="/hallucination" element={<Hallucination {...ctx} />} />
             </Routes>
           </Layout>
         </BrowserRouter>

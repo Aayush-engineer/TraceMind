@@ -9,10 +9,13 @@ interface Props {
 }
 
 const NAV = [
-  { path: "/",         label: "Dashboard", icon: "◎" },
-  { path: "/traces",   label: "Traces",    icon: "⚡" },
-  { path: "/evals",    label: "Evals",     icon: "✓" },
-  { path: "/datasets", label: "Datasets",  icon: "◫" },
+  { path: "/",             label: "Dashboard",    icon: "◎" },
+  { path: "/live",         label: "Live",         icon: "⚡" },
+  { path: "/traces",       label: "Traces",       icon: "≡" },
+  { path: "/evals",        label: "Evals",        icon: "✓" },
+  { path: "/playground",   label: "Playground",   icon: "🧪" },
+  { path: "/hallucination",label: "Hallucination",icon: "🧠" },
+  { path: "/datasets",     label: "Datasets",     icon: "◫" },
 ]
 
 export default function Layout({ children, ctx, onLogout }: Props) {
