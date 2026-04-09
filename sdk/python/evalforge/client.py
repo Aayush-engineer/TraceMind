@@ -3,6 +3,7 @@ import uuid
 import json
 import logging
 import functools
+import re
 import threading
 from typing import Any, Callable, Optional, Union
 from contextlib import contextmanager
@@ -247,13 +248,17 @@ class TraceMind:
 
     def __init__(
         self,
-        api_key:        str,
-        project:        str,
-        base_url:       str = "https://tracemind.onrender.com",
-        batch_size:     int = 20,
-        flush_interval: float = 5.0,
-        timeout:        float = 10.0,
-        debug:          bool = False,
+        api_key:                str,
+        project:                str,
+        base_url:               str   = "https://tracemind.onrender.com",
+        batch_size:             int   = 20,
+        flush_interval:         float = 5.0,
+        timeout:                float = 10.0,
+        debug:                  bool  = False,
+        redact_pii:             bool  = False,           
+        custom_redact_patterns: list  = None,            
+        mask_inputs:            bool  = False,           
+        mask_outputs:           bool  = False,           
     ):
         if not api_key:
             raise ValueError("api_key is required. Get one at your TraceMind dashboard.")
@@ -295,6 +300,11 @@ class TraceMind:
             name   = "tracemind-flusher",
         )
         self._flush_thread.start()
+        # PII redaction
+        self._redact_pii  = redact_pii
+        self._mask_inputs  = mask_inputs
+        self._mask_outputs = mask_outputs
+        self._redactor    = PIIRedactor(custom_redact_patterns) if redact_pii else None
         logger.debug(f"TraceMind initialized — project={project}, url={base_url}")
 
     # ── Decorator API ─────────────────────────────────────────────────────
@@ -571,6 +581,20 @@ class TraceMind:
     # ── Internal ──────────────────────────────────────────────────────────
 
     def _buffer_span(self, span: dict):
+        """Thread-safe span buffering with optional PII redaction."""
+        if self._redactor:
+            if "input" in span:
+                span["input"]  = self._redactor.redact(span["input"])
+            if "output" in span:
+                span["output"] = self._redactor.redact(span["output"])
+            if "error" in span:
+                span["error"]  = self._redactor.redact(span["error"])
+        
+        if self._mask_inputs and "input" in span:
+            span["input"] = "[MASKED]"
+        if self._mask_outputs and "output" in span:
+            span["output"] = "[MASKED]"
+        
         with self._lock:
             self._buffer.append(span)
             if len(self._buffer) >= self._batch_size:
@@ -629,3 +653,133 @@ class TraceMind:
 
     def __repr__(self) -> str:
         return f"TraceMind(project={self.project!r}, url={self.base_url!r})"
+
+    def trace_stream(self, name: str = None, tags: list[str] = None):
+        return StreamSpanContext(self, name or "streaming_llm", tags or [])
+
+    class StreamSpanContext:
+        def __init__(self, client: "EvalForge", name: str, tags: list):
+            self._client       = client
+            self._name         = name
+            self._tags         = tags
+            self._span_id      = str(uuid.uuid4())
+            self._trace_id     = str(uuid.uuid4())
+            self._t0           = None
+            self._first_token_time = None
+            self._chunks:      list[str] = []
+            self._error:       str = ""
+            self._input:       str = ""
+            self._metadata:    dict = {}
+        
+        def __enter__(self) -> "StreamSpanContext":
+            self._t0 = time.time()
+            return self
+        
+        def set_input(self, text: str) -> "StreamSpanContext":
+            self._input = text
+            return self
+        
+        def add_chunk(self, chunk: str) -> None:
+            if chunk and self._first_token_time is None:
+                self._first_token_time = time.time()
+            if chunk:
+                self._chunks.append(chunk)
+        
+        def set_metadata(self, key: str, value: Any) -> "StreamSpanContext":
+            self._metadata[key] = value
+            return self
+        
+        @property
+        def output(self) -> str:
+            return "".join(self._chunks)
+        
+        @property 
+        def first_token_latency_ms(self) -> float:
+            if self._first_token_time and self._t0:
+                return round((self._first_token_time - self._t0) * 1000, 2)
+            return 0.0
+        
+        def __exit__(self, exc_type, exc_val, exc_tb):
+            total_duration = time.time() - self._t0
+            if exc_val:
+                self._error = str(exc_val)[:500]
+            
+            self._client._buffer_span({
+                "span_id":     self._span_id,
+                "trace_id":    self._trace_id,
+                "project":     self._client.project,
+                "name":        self._name,
+                "input":       self._input[:2000],
+                "output":      self.output[:2000],
+                "error":       self._error,
+                "duration_ms": round(total_duration * 1000, 2),
+                "status":      "error" if exc_val else "success",
+                "tags":        self._tags,
+                "metadata":    {
+                    **self._metadata,
+                    "first_token_ms":  self.first_token_latency_ms,
+                    "total_chunks":    len(self._chunks),
+                    "total_tokens_approx": len(self.output.split()),
+                },
+                "timestamp": self._t0,
+            })
+            return False
+
+
+
+class PIIRedactor:
+    
+    PATTERNS = [
+        # Email addresses
+        (re.compile(r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'),
+         "[EMAIL]"),
+        # Phone numbers (various formats)
+        (re.compile(r'\b(\+\d{1,3}[-.\s]?)?\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b'),
+         "[PHONE]"),
+        # Credit card numbers
+        (re.compile(r'\b(?:\d{4}[-\s]?){3}\d{4}\b'),
+         "[CARD]"),
+        # SSN
+        (re.compile(r'\b\d{3}-\d{2}-\d{4}\b'),
+         "[SSN]"),
+        # IP addresses
+        (re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b'),
+         "[IP]"),
+        # API keys (common patterns)
+        (re.compile(r'\b(sk-|pk-|ef_live_|Bearer |token=)[A-Za-z0-9_\-]{20,}\b'),
+         "[API_KEY]"),
+        # JWT tokens
+        (re.compile(r'\beyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\b'),
+         "[JWT]"),
+        # Dates of birth patterns
+        (re.compile(r'\b(0[1-9]|1[0-2])[\/\-](0[1-9]|[12]\d|3[01])[\/\-]\d{4}\b'),
+         "[DOB]"),
+    ]
+    
+    def __init__(self, custom_patterns: list[tuple] = None):
+        self._patterns = self.PATTERNS.copy()
+        if custom_patterns:
+            for pattern, replacement in custom_patterns:
+                if isinstance(pattern, str):
+                    pattern = re.compile(pattern)
+                self._patterns.append((pattern, replacement))
+    
+    def redact(self, text: str) -> str:
+        if not text:
+            return text
+        for pattern, replacement in self._patterns:
+            text = pattern.sub(replacement, text)
+        return text
+    
+    def redact_dict(self, d: dict) -> dict:
+        result = {}
+        for k, v in d.items():
+            if isinstance(v, str):
+                result[k] = self.redact(v)
+            elif isinstance(v, dict):
+                result[k] = self.redact_dict(v)
+            elif isinstance(v, list):
+                result[k] = [self.redact(i) if isinstance(i, str) else i for i in v]
+            else:
+                result[k] = v
+        return result
