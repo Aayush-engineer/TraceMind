@@ -2,7 +2,7 @@ import time
 import json
 import httpx
 
-BASE = "https://tracemind.onrender.com"  # change to localhost:8000 for local
+BASE = "http://localhost:8000"  # change to localhost:8000 for local
 KEY  = None   # set after project creation
 PID  = None
 

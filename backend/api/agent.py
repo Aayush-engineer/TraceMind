@@ -105,27 +105,24 @@ async def get_run(run_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/runs")
 async def list_runs(
-    project_id: str,
+    project_id: Optional[str] = None,
     limit:      int = 20,
     db:         AsyncSession = Depends(get_db)
 ):
-    import json
-
-    result = await db.execute(
-        select(AgentRun)
-        .where(AgentRun.project_id == project_id)
-        .order_by(AgentRun.started_at.desc())
-        .limit(limit)
-    )
-    runs = result.scalars().all()
-
+    from sqlalchemy import select
+    query = select(AgentRun)
+    if project_id:
+        query = query.where(AgentRun.project_id == project_id)
+    query = query.order_by(AgentRun.started_at.desc()).limit(limit)
+    result = await db.execute(query)
+    runs   = result.scalars().all()
     return {
         "runs": [
             {
-                "run_id":   r.id,
-                "query":    r.query[:80],
-                "status":   r.status,
-                "answer":   r.answer[:150] if r.answer else "",
+                "run_id":     r.id,
+                "query":      r.query[:80],
+                "status":     r.status,
+                "answer":     r.answer[:150] if r.answer else "",
                 "started_at": r.started_at,
             }
             for r in runs
