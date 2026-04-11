@@ -1,0 +1,44 @@
+name: Eval Gate
+
+on:
+  push:
+    branches: [main, production]
+  pull_request:
+    branches: [main]
+
+env:
+  TRACEMIND_API_URL:  https://tracemind.onrender.com
+  DATASET_NAME:       production-golden-v1
+  PASS_RATE_THRESHOLD: 0.80        # Block if pass rate drops below 80%
+  JUDGE_CRITERIA:     accurate,helpful,professional
+
+jobs:
+  eval-gate:
+    name: "Quality Gate"
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install TraceMind SDK
+        run: pip install tracemind-sdk httpx
+
+      - name: Run eval gate
+        env:
+          TRACEMIND_API_KEY: ${{ secrets.TRACEMIND_API_KEY }}
+        run: python .github/scripts/eval_gate.py
+
+      - name: Upload eval results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: eval-results-${{ github.sha }}
+          path: eval_results.json
+          retention-days: 30
