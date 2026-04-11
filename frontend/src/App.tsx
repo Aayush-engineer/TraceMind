@@ -59,6 +59,44 @@ function Login({ onLogin }: { onLogin: (pid: string, key: string) => void }) {
         <p style={{ color: "#64748b", fontSize: "13px", marginBottom: "1.75rem" }}>
           AI quality monitoring platform
         </p>
+        {/* Demo banner — add this above your login form inputs */}
+        <div style={{
+          background: "rgba(124,58,237,0.1)",
+          border: "1px solid rgba(124,58,237,0.3)",
+          borderRadius: "8px",
+          padding: "12px 16px",
+          marginBottom: "16px",
+          fontSize: "12px",
+          color: "#a78bfa",
+          lineHeight: 1.6,
+        }}>
+          <strong style={{ color: "#c4b5fd" }}>Try the live demo</strong><br/>
+          Project ID: <code style={{
+            background: "rgba(0,0,0,0.3)", padding: "1px 5px",
+            borderRadius: "4px", fontFamily: "monospace", fontSize: "11px"
+          }}>your-real-demo-project-id</code><br/>
+          API Key: <code style={{
+            background: "rgba(0,0,0,0.3)", padding: "1px 5px",
+            borderRadius: "4px", fontFamily: "monospace", fontSize: "11px"
+          }}>ef_live_your-real-key</code>
+          <button
+            onClick={() => {
+              // Auto-fill the form fields
+              const idInput  = document.querySelector('input[placeholder*="Project"]') as HTMLInputElement
+              const keyInput = document.querySelector('input[placeholder*="API"]')     as HTMLInputElement
+              if (idInput)  idInput.value  = "213d5c46-61f"
+              if (keyInput) keyInput.value = "213d5c46-61f"
+            }}
+            style={{
+              display: "block", marginTop: "8px",
+              padding: "5px 12px", background: "#7c3aed",
+              color: "white", border: "none", borderRadius: "5px",
+              fontSize: "11px", cursor: "pointer", fontWeight: 600,
+            }}
+          >
+            ↗ Auto-fill and try demo
+          </button>
+        </div>
         <form onSubmit={handleSubmit}>
           {[
             { label: "Project ID", value: projectId, set: setProjectId,

@@ -20,6 +20,7 @@ Open-source AI evaluation and observability platform — self-hosted, free, no v
 ---
 
 ![Tracemind Demo](./docs/demo.gif)
+![TraceMind Dashboard](docs/dashboard.png)
 
 ---
 
