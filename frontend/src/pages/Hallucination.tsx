@@ -1,7 +1,7 @@
 import { useState } from "react"
 import type { AppContext } from "../App"
 
-export default function Hallucination({ projectId, apiKey, apiUrl }: AppContext) {
+export default function Hallucination({ apiKey, apiUrl }: AppContext) {
   const [question, setQuestion] = useState("")
   const [response, setResponse] = useState("")
   const [context,  setContext]  = useState("")

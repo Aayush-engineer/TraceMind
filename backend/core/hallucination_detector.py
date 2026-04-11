@@ -115,7 +115,7 @@ class HallucinationDetector:
 
         t0    = time.time()
         loop  = asyncio.get_running_loop()
-        model = "fast" if fast_mode else "smart"
+        model = "smart" if len(response) < 200 else ("fast" if fast_mode else "smart")
 
         # Stage 1: Extract claims
         claims_raw = await loop.run_in_executor(
@@ -162,34 +162,41 @@ class HallucinationDetector:
             "\nNo ground truth context provided. Check for self-consistency only."
         )
 
-        prompt = f"""Analyze this AI response for hallucinations and factual claims.
+        prompt = f"""You are a precise fact-checker. Extract EVERY verifiable claim from the AI response below.
+
+IMPORTANT: Even a single sentence contains claims. Extract ALL of them — numbers, policies, facts, names, timeframes, quantities, promises. Do not skip any.
 
 Question asked: {question[:300]}
-AI Response: {response[:600]}
+
+AI Response to analyze: "{response[:600]}"
+
 {context_section}
 
-Extract ALL factual claims from the response and classify each one.
+EXTRACTION RULES:
+1. Extract EVERY specific fact, number, date, policy, or promise — even from one-sentence responses
+2. "We offer 30-day refunds" → extract claim: "30-day refunds"
+3. "We ship internationally" → extract claim: "ships internationally"  
+4. If the response says nothing verifiable, return [{{"claim":"no specific claims made","type":"none","grounded":true,"confidence":0.1,"evidence":"response contains no verifiable facts","risk":"low"}}]
 
-Return ONLY valid JSON array:
+For EACH claim classify:
+- type: "factual" (contradicts context), "fabrication" (no grounding), "contradiction" (self-contradicts), "overconfident" (uncertain stated as fact), "none" (accurate)
+- grounded: true if supported by context or generally true, false if contradicted
+- confidence: 0.0-1.0 how certain the AI sounds
+- evidence: what supports or contradicts this claim
+- risk: "low", "medium", "high", or "critical"
+
+Return ONLY a valid JSON array, no markdown, no explanation:
 [
   {{
-    "claim": "exact text of the claim",
-    "type": "factual|fabrication|contradiction|overconfident|none",
-    "grounded": true_if_supported_by_context_or_verifiable,
-    "confidence": 0.0_to_1.0_how_confident_the_AI_sounds,
-    "evidence": "what supports or contradicts this claim",
-    "risk": "low|medium|high|critical"
+    "claim": "exact text of the claim from the response",
+    "type": "none|factual|fabrication|contradiction|overconfident",
+    "grounded": true,
+    "confidence": 0.9,
+    "evidence": "explanation of why this is or isn't grounded",
+    "risk": "low"
   }}
-]
+]"""
 
-Types:
-- factual: directly contradicts the provided context
-- fabrication: stated as fact with no basis in context  
-- contradiction: contradicts another claim in the same response
-- overconfident: uncertain info stated as definite fact
-- none: claim is accurate and grounded
-
-Be thorough. Extract every specific claim (numbers, dates, policies, names)."""
 
         raw = chat_fn(
             messages   = [{"role": "user", "content": prompt}],

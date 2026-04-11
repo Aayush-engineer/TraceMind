@@ -28,9 +28,21 @@ export interface AppContext {
 function Login({ onLogin }: { onLogin: (pid: string, key: string) => void }) {
   const [projectId, setProjectId] = useState("")
   const [apiKey,    setApiKey]    = useState("")
+  const [error, setError] = useState<string>("")
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
+    if (!projectId.trim() || !apiKey.trim()) {
+    setError("Both Project ID and API Key are required")
+      return
+    }
+    
+    if (!apiKey.startsWith("ef_live_")) {
+      setError("API key should start with ef_live_")
+      return
+    }
+
+    setError("")
     localStorage.setItem("ef_api_key",    apiKey)
     localStorage.setItem("ef_project_id", projectId)
     onLogin(projectId, apiKey)
@@ -38,102 +50,190 @@ function Login({ onLogin }: { onLogin: (pid: string, key: string) => void }) {
 
   return (
     <div style={{
-      position: "fixed", inset: 0, background: "#0f172a",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      fontFamily: "system-ui, sans-serif"
+      minHeight: "100vh",
+      background: "#060910",
+      display: "flex",
+      alignItems: "center",
+      justifyContent: "center",
+      fontFamily: "'Inter', system-ui, sans-serif",
+      padding: "20px",
     }}>
       <div style={{
-        background: "#1e293b", border: "1px solid #334155",
-        padding: "2rem", borderRadius: "14px", width: "360px"
+        width: "100%",
+        maxWidth: "380px",
       }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "6px" }}>
+        {/* Logo */}
+        <div style={{ textAlign: "center", marginBottom: "32px" }}>
           <div style={{
-            width: "32px", height: "32px", background: "#6366f1",
-            borderRadius: "8px", display: "flex", alignItems: "center",
-            justifyContent: "center", fontSize: "16px", fontWeight: 700, color: "white"
-          }}>E</div>
-          <h1 style={{ fontSize: "20px", fontWeight: 700, color: "#f1f5f9", margin: 0 }}>
+            width: "48px", height: "48px",
+            background: "linear-gradient(135deg, #7c3aed 0%, #a855f7 60%, #06b6d4 100%)",
+            borderRadius: "12px",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            marginBottom: "12px",
+            boxShadow: "0 4px 20px rgba(124,58,237,0.4)",
+          }}>
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+              <path d="M3 6h18M12 6v12" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
+              <circle cx="12" cy="18" r="2" fill="white"/>
+            </svg>
+          </div>
+          <h1 style={{
+            fontSize: "22px", fontWeight: 700,
+            color: "#e6edf3", margin: "0 0 4px",
+            letterSpacing: "-0.5px",
+          }}>
             TraceMind
           </h1>
+          <p style={{ fontSize: "13px", color: "#484f58", margin: 0 }}>
+            AI Quality Observability Platform
+          </p>
         </div>
-        <p style={{ color: "#64748b", fontSize: "13px", marginBottom: "1.75rem" }}>
-          AI quality monitoring platform
-        </p>
-        {/* Demo banner — add this above your login form inputs */}
+
+        {/* Card */}
         <div style={{
-          background: "rgba(124,58,237,0.1)",
-          border: "1px solid rgba(124,58,237,0.3)",
-          borderRadius: "8px",
-          padding: "12px 16px",
-          marginBottom: "16px",
-          fontSize: "12px",
-          color: "#a78bfa",
-          lineHeight: 1.6,
+          background: "#0d1117",
+          border: "1px solid rgba(255,255,255,0.08)",
+          borderRadius: "14px",
+          padding: "24px",
+          boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
         }}>
-          <strong style={{ color: "#c4b5fd" }}>Try the live demo</strong><br/>
-          Project ID: <code style={{
-            background: "rgba(0,0,0,0.3)", padding: "1px 5px",
-            borderRadius: "4px", fontFamily: "monospace", fontSize: "11px"
-          }}>your-real-demo-project-id</code><br/>
-          API Key: <code style={{
-            background: "rgba(0,0,0,0.3)", padding: "1px 5px",
-            borderRadius: "4px", fontFamily: "monospace", fontSize: "11px"
-          }}>ef_live_your-real-key</code>
-          <button
+          {/* Demo banner */}
+          <div
             onClick={() => {
-              // Auto-fill the form fields
-              const idInput  = document.querySelector('input[placeholder*="Project"]') as HTMLInputElement
-              const keyInput = document.querySelector('input[placeholder*="API"]')     as HTMLInputElement
-              if (idInput)  idInput.value  = "213d5c46-61f"
-              if (keyInput) keyInput.value = "213d5c46-61f"
+              setProjectId("YOUR_DEMO_PROJECT_ID")
+              setApiKey("ef_live_YOUR_DEMO_KEY")
             }}
             style={{
-              display: "block", marginTop: "8px",
-              padding: "5px 12px", background: "#7c3aed",
-              color: "white", border: "none", borderRadius: "5px",
-              fontSize: "11px", cursor: "pointer", fontWeight: 600,
+              background: "rgba(124,58,237,0.1)",
+              border: "1px solid rgba(124,58,237,0.3)",
+              borderRadius: "8px",
+              padding: "10px 14px",
+              marginBottom: "20px",
+              cursor: "pointer",
+              fontSize: "12px",
+              color: "#a78bfa",
+              lineHeight: 1.6,
+              userSelect: "none" as const,
             }}
           >
-            ↗ Auto-fill and try demo
-          </button>
-        </div>
-        <form onSubmit={handleSubmit}>
-          {[
-            { label: "Project ID", value: projectId, set: setProjectId,
-              placeholder: "64768f98-106...", type: "text" },
-            { label: "API Key",    value: apiKey,    set: setApiKey,
-              placeholder: "ef_live_...", type: "password" },
-          ].map(f => (
-            <div key={f.label} style={{ marginBottom: "14px" }}>
-              <label style={{ fontSize: "12px", fontWeight: 500,
-                              color: "#94a3b8", display: "block", marginBottom: "5px" }}>
-                {f.label}
+            <span style={{ color: "#c4b5fd", fontWeight: 600 }}>
+              ↗ Try live demo
+            </span>
+            {" — "}click to auto-fill credentials
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+            <div>
+              <label style={{
+                fontSize: "11px", fontWeight: 600,
+                color: "#8b949e", display: "block",
+                marginBottom: "6px", textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}>
+                Project ID
               </label>
               <input
-                value={f.value}
-                onChange={e => f.set(e.target.value)}
-                placeholder={f.placeholder}
-                type={f.type}
-                required
+                type="text"
+                value={projectId}
+                onChange={e => setProjectId(e.target.value)}
+                placeholder="8e09f14f-2dc..."
                 style={{
-                  width: "100%", padding: "9px 12px", borderRadius: "7px",
-                  border: "1px solid #334155", background: "#0f172a",
-                  color: "#e2e8f0", fontSize: "13px", boxSizing: "border-box"
+                  width: "100%", padding: "9px 12px",
+                  background: "#161b22",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: "7px", color: "#e6edf3",
+                  fontSize: "13px", boxSizing: "border-box" as const,
+                  fontFamily: "monospace",
                 }}
               />
             </div>
-          ))}
-          <button type="submit" style={{
-            width: "100%", padding: "10px", background: "#6366f1",
-            color: "white", border: "none", borderRadius: "7px",
-            fontSize: "14px", fontWeight: 600, cursor: "pointer", marginTop: "4px"
+
+            <div>
+              <label style={{
+                fontSize: "11px", fontWeight: 600,
+                color: "#8b949e", display: "block",
+                marginBottom: "6px", textTransform: "uppercase",
+                letterSpacing: "0.06em",
+              }}>
+                API Key
+              </label>
+              <input
+                type="password"
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+                placeholder="ef_live_..."
+                style={{
+                  width: "100%", padding: "9px 12px",
+                  background: "#161b22",
+                  border: "1px solid rgba(255,255,255,0.08)",
+                  borderRadius: "7px", color: "#e6edf3",
+                  fontSize: "13px", boxSizing: "border-box" as const,
+                  fontFamily: "monospace",
+                }}
+              />
+            </div>
+
+            {error && (
+              <div style={{
+                background: "rgba(248,81,73,0.1)",
+                border: "1px solid rgba(248,81,73,0.3)",
+                borderRadius: "7px", padding: "9px 12px",
+                fontSize: "12px", color: "#f85149",
+              }}>
+                {error}
+              </div>
+            )}
+
+            <button
+              onClick={handleSubmit}
+              disabled={!projectId || !apiKey}
+              style={{
+                width: "100%", padding: "10px",
+                background: (!projectId || !apiKey)
+                  ? "rgba(124,58,237,0.3)"
+                  : "linear-gradient(135deg, #7c3aed, #a855f7)",
+                color: "white", border: "none",
+                borderRadius: "8px", fontSize: "14px",
+                fontWeight: 600, cursor: (!projectId || !apiKey) ? "not-allowed" : "pointer",
+                boxShadow: (!projectId || !apiKey) ? "none" : "0 2px 12px rgba(124,58,237,0.4)",
+                marginTop: "4px",
+              }}
+            >
+              Open Dashboard →
+            </button>
+          </div>
+
+          <p style={{
+            fontSize: "11px", color: "#30363d",
+            textAlign: "center", margin: "16px 0 0",
           }}>
-            Open Dashboard →
-          </button>
-        </form>
-        <p style={{ textAlign: "center", fontSize: "11px",
-                    color: "#334155", marginTop: "1.25rem", marginBottom: 0 }}>
-          Open source · Self-hosted · Free
+            No account needed · Self-hosted · Free forever
+          </p>
+        </div>
+
+        <p style={{
+          textAlign: "center", fontSize: "11px",
+          color: "#30363d", marginTop: "20px",
+        }}>
+          <a
+            href="https://github.com/Aayush-engineer/tracemind"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#8b949e", textDecoration: "none" }}
+          >
+            ⭐ Star on GitHub
+          </a>
+          {" · "}
+          <a
+            href="https://tracemind.onrender.com/docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ color: "#8b949e", textDecoration: "none" }}
+          >
+            API Docs
+          </a>
         </p>
       </div>
     </div>

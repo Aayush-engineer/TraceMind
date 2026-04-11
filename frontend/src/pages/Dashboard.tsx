@@ -87,7 +87,7 @@ export default function Dashboard({ projectId, apiKey, apiUrl }: Props) {
 
   if (loading) return (
     <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
-      {[100,80,120,60].map((w,i) => (
+      {[100,80,120,60].map((_,i) => (
         <div key={i} style={{
           height: "80px", borderRadius: "var(--radius-lg)",
           background: "linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-overlay) 50%, var(--bg-elevated) 75%)",
