@@ -1,23 +1,13 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=61"]
 build-backend = "setuptools.backends.legacy:build"
 
 [project]
-name            = "TraceMind"
-version         = "0.1.0"
-description     = "LLM observability and evaluation SDK"
-readme          = "README.md"
+name = "tracemind-sdk"
+version = "0.3.0"
+description = "TraceMind Python SDK"
 requires-python = ">=3.9"
-license         = { text = "MIT" }
-keywords        = ["llm", "evaluation", "observability", "ai"]
-dependencies    = [
-    "httpx>=0.27.0",
-]
-
-[project.urls]
-Homepage   = "https://github.com/Aayush-engineer/TraceMind"
-Repository = "https://github.com/Aayush-engineer/TraceMind"
+dependencies = ["httpx>=0.24.0"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["TraceMind*"]

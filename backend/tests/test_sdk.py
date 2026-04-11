@@ -3,12 +3,12 @@ import time
 import json
 from unittest.mock import patch, MagicMock
 
-
 def make_client():
-    """Create EvalForge client with mocked background thread."""
     with patch("threading.Thread"):
-        from sdk.python.evalforge.client import EvalForge
-        return EvalForge(
+        import sys, os
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "sdk", "python"))
+        from tracemind.client import TraceMind
+        return TraceMind(
             api_key  = "ef_live_test_key_sdk",
             project  = "test-project",
             base_url = "http://localhost:8000"
@@ -30,16 +30,24 @@ class TestClientInit:
         assert c.base_url == "http://localhost:8000"
 
     def test_empty_api_key_raises(self):
+        import sys, os
+        sys.path.insert(0, os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "sdk", "python")
+        ))
         with patch("threading.Thread"):
-            from sdk.python.evalforge.client import EvalForge
+            from tracemind.client import TraceMind
             with pytest.raises(ValueError, match="api_key"):
-                EvalForge(api_key="", project="test")
+                TraceMind(api_key="", project="test")
 
     def test_empty_project_raises(self):
+        import sys, os
+        sys.path.insert(0, os.path.abspath(
+            os.path.join(os.path.dirname(__file__), "..", "..", "sdk", "python")
+        ))
         with patch("threading.Thread"):
-            from sdk.python.evalforge.client import EvalForge
+            from tracemind.client import TraceMind
             with pytest.raises(ValueError, match="project"):
-                EvalForge(api_key="ef_live_key", project="")
+                TraceMind(api_key="ef_live_key", project="")
 
 
 class TestTraceDecorator:
@@ -154,8 +162,12 @@ class TestFlushBehavior:
     def test_buffer_at_batch_size_triggers_flush(self):
         c = make_client()
         c._batch_size = 3
-        flushed = []
-        with patch.object(c, "_flush_unsafe", side_effect=flushed.append):
+        flush_count = [0]
+
+        def count_flush(*args, **kwargs):
+            flush_count[0] += 1
+
+        with patch.object(c, "_flush_unsafe", side_effect=count_flush):
             for i in range(3):
                 c._buffer_span({"span_id": f"s{i}", "name": "t"})
-        assert len(flushed) >= 1
+        assert flush_count[0] >= 1

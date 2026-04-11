@@ -10,35 +10,32 @@ from ..db.models   import Project
 logger  = logging.getLogger(__name__)
 bearer  = HTTPBearer(auto_error=False)
 
+security = HTTPBearer(auto_error=False)
 
 async def get_current_project(
-    credentials: HTTPAuthorizationCredentials = Security(bearer),
-    db:          AsyncSession                 = Depends(get_db)
+    credentials: HTTPAuthorizationCredentials = Depends(security),
+    db: AsyncSession = Depends(get_db)
 ) -> Project:
+    if not credentials or not credentials.credentials:
+        raise HTTPException(status_code=401, detail="Missing Authorization header. Use: Authorization: Bearer ef_live_")
     
-    if not credentials:
-        raise HTTPException(
-            status_code = 401,
-            detail      = "Missing Authorization header. "
-                          "Use: Authorization: Bearer ef_live_<your_key>",
-            headers     = {"WWW-Authenticate": "Bearer"}
+    token = credentials.credentials.strip()
+    
+    if not token.startswith("ef_live_"):
+        raise HTTPException(status_code=401, detail="Invalid API key format. Keys must start with ef_live_")
+    
+    try:
+        from sqlalchemy import select
+        result = await db.execute(
+            select(Project).where(Project.api_key == token)
         )
-
-    api_key = credentials.credentials
-
-    result  = await db.execute(
-        select(Project).where(Project.api_key == api_key)
-    )
-    project = result.scalar_one_or_none()
-
+        project = result.scalar_one_or_none()
+    except Exception as e:
+        raise HTTPException(status_code=401, detail="Invalid or expired API key")
+    
     if not project:
-        logger.warning(f"Invalid API key attempt: {api_key[:12]}...")
-        raise HTTPException(
-            status_code = 401,
-            detail      = "Invalid API key.",
-            headers     = {"WWW-Authenticate": "Bearer"}
-        )
-
+        raise HTTPException(status_code=401, detail="Invalid API key")
+    
     return project
 
 

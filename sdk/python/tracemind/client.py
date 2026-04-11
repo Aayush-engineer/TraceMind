@@ -658,7 +658,7 @@ class TraceMind:
         return StreamSpanContext(self, name or "streaming_llm", tags or [])
 
     class StreamSpanContext:
-        def __init__(self, client: "EvalForge", name: str, tags: list):
+        def __init__(self, client: "TraceMind", name: str, tags: list):
             self._client       = client
             self._name         = name
             self._tags         = tags

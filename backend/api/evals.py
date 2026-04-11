@@ -15,6 +15,7 @@ from ..core.regression_detector import RegressionDetector
 from ..core.auth import get_current_project
 from ..core.limiter import limiter
 from fastapi import Request
+from ..db.models import Project
 
 router = APIRouter(dependencies=[Depends(get_current_project)])
 detector  = RegressionDetector()
@@ -166,16 +167,19 @@ async def _execute_eval_run(run_id: str, examples: list, req: RunEvalRequest):
         db.close()
 
 @router.get("/{run_id}")
-async def get_eval_run(run_id: str, db: AsyncSession = Depends(get_db)):
+async def get_eval_run(run_id: str, project: Project = Depends(get_current_project), db: AsyncSession = Depends(get_db)):
     from sqlalchemy import select
     from fastapi import HTTPException
+    try:
+        run_result = await db.execute(
+            select(EvalRun).where(EvalRun.id == run_id)
+        )
+        run = run_result.scalar_one_or_none()
+    except Exception:
+        raise HTTPException(status_code=404, detail=f"Eval run '{run_id}' not found")
 
-    run_result = await db.execute(
-        select(EvalRun).where(EvalRun.id == run_id)
-    )
-    run = run_result.scalar_one_or_none()
     if not run:
-        raise HTTPException(404, "Eval run not found")
+        raise HTTPException(status_code=404, detail=f"Eval run '{run_id}' not found")
 
     results_q = await db.execute(
         select(EvalResult).where(EvalResult.run_id == run_id)
