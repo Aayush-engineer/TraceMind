@@ -71,7 +71,12 @@ async def get_run(run_id: str, db: AsyncSession = Depends(get_db)):
     run = result.scalar_one_or_none()
 
     if not run:
-        raise HTTPException(404, f"Run '{run_id}' not found")
+        return {
+            "run_id": run_id,
+            "status": "pending",
+            "answer": None,
+            "error":  None,
+        }
 
     response = {
         "run_id":    run.id,

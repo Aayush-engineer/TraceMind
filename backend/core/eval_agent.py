@@ -251,8 +251,16 @@ async def _index_failures_to_chromadb(failures: list, dataset_name: str):
 async def _search_similar_failures(inputs: dict) -> dict:
     loop = asyncio.get_running_loop()
 
+    description = (
+        inputs.get("failure_description") or
+        inputs.get("description") or
+        inputs.get("query") or
+        inputs.get("pattern") or
+        str(inputs)[:500]
+    )
+
     embeddings_list = await loop.run_in_executor(
-        None, lambda: embed([inputs["failure_description"][:500]])
+        None, lambda: embed([description[:500]])
     )
     query_embedding = embeddings_list[0]
 

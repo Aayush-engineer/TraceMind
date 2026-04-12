@@ -13,7 +13,7 @@ Open-source AI evaluation and observability platform — self-hosted, free, no v
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://typescriptlang.org)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115-green.svg)](https://fastapi.tiangolo.com)
 [![React](https://img.shields.io/badge/React-18-blue.svg)](https://react.dev)
-[![Tests](https://img.shields.io/github/actions/workflow/status/yourusername/tracemind/test.yml?label=tests)](https://github.com/yourusername/tracemind/actions)
+[![Tests](https://img.shields.io/github/actions/workflow/status/Aayush-engineer/tracemind/test.yml?label=tests)](https://github.com/Aayush-engineer/tracemind/actions)
 
 **[→ Live Demo](https://tracemind.vercel.app)** · [Quick Start](#quick-start) · [SDK Docs](#sdk-usage) · [API Reference](#api-reference)
 
@@ -472,7 +472,7 @@ tracemind/
 │   │   ├── test_api.py      
 │   │   └── test_eval_engine.py    
 │   ├── alembic/           # Database migrations
-│   └── tests/             # 50 tests across all layers
+│   └── tests/             # 76 tests across all layers
 ├── frontend/
 │   └── src/
 │       ├── pages/         # Dashboard, Traces, Evals, Datasets
@@ -482,7 +482,7 @@ tracemind/
 │   ├── python/            # pip install tracemind-sdk
 │   └── typescript/        # npm install tracemind-sdk
 ├── .github/
-│   ├── workflows/test.yml # CI — runs 50 tests on push
+│   ├── workflows/test.yml # CI — runs 76 tests on push
 │   └── ISSUE_TEMPLATE/    # Bug report + feature request
 ├── docker-compose.yml
 ├── CONTRIBUTING.md

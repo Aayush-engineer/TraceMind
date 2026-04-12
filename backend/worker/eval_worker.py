@@ -200,41 +200,38 @@ class EvalWorker:
         )
 
         if regressions:
+            loop = asyncio.get_running_loop()
             await loop.run_in_executor(
                 None, self._save_alerts, regressions
             )
 
-    def _save_alerts(self, regressions):
+            for reg in regressions:
+                await self._broadcast("system", {
+                    "type":     "new_alert",
+                    "severity": reg.severity,
+                    "message":  reg.action,
+                })
+
+                
+
+    def _save_alerts(self, regressions: list) -> None:
+        from ..db.database import get_sync_db
+        from ..db.models   import Alert
+
         db = get_sync_db()
         try:
             for reg in regressions:
-                existing = db.query(Alert).filter(
-                    Alert.type     == reg.type,
-                    Alert.resolved == False  
-                ).first()
-
-                if not existing:
-                    alert = Alert(
-                        project_id   = "system",
-                        type         = reg.type,
-                        severity     = reg.severity,
-                        message      = reg.message,
-                        metric_value = reg.metric,
-                        threshold    = reg.baseline,
-                    )
-                    db.add(alert)
-                    logger.warning(f"Alert fired: [{reg.severity}] {reg.message}")
-
+                alert = Alert(
+                    project_id = getattr(reg, "project_id", "system"),
+                    type       = reg.type,
+                    severity   = reg.severity,
+                    message    = reg.action,
+                    resolved   = False,
+                )
+                db.add(alert)
             db.commit()
-            import asyncio
-            for reg in regressions:
-                asyncio.create_task(self._broadcast("system", {
-                    "type":    "new_alert",
-                    "alert": {
-                        "type":     reg.type,
-                        "severity": reg.severity,
-                        "message":  reg.message,
-                    }
-                }))
+        except Exception as e:
+            db.rollback()
+            logger.error(f"Failed to save alerts: {e}")
         finally:
             db.close()

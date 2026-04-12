@@ -108,5 +108,6 @@ def chat_with_usage(
 def embed(texts: list[str]) -> list[list[float]]:
     from sentence_transformers import SentenceTransformer
     model      = SentenceTransformer("all-MiniLM-L6-v2")
-    embeddings = model.encode(texts, convert_to_list=True)
-    return embeddings
+    embeddings = model.encode(texts)
+    result = embeddings.tolist() if hasattr(embeddings, "tolist") else list(embeddings)
+    return result
