@@ -33,7 +33,10 @@ print(f"{'='*54}\n")
 # ── Start eval run ─────────────────────────────────────────
 
 print("Starting eval run...")
+PROJECT_NAME = os.environ.get("TRACEMIND_PROJECT", "ci-eval")
+
 r = client.post("/api/evals/run", json={
+    "project":        PROJECT_NAME,    # ← this was missing
     "dataset_name":   DATASET,
     "judge_criteria": CRITERIA,
     "name":           f"ci-{GIT_SHA}",

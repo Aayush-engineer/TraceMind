@@ -45,6 +45,8 @@ async def start_eval_run(
 
     result  = await db.execute(
         select(Dataset).where(Dataset.name == req.dataset_name)
+        .order_by(Dataset.created_at.desc())
+        .limit(1)
     )
     dataset = result.scalar_one_or_none()
     if not dataset:

@@ -137,7 +137,7 @@ async def _run_targeted_eval(inputs: dict, project_id: str) -> dict:
         db = get_sync_db()
         try:
             dataset = db.query(Dataset).filter_by(
-                name=inputs["dataset_name"]
+                name=inputs.get("dataset_name") or inputs.get("dataset") or inputs.get("name", "")
             ).first()
             if not dataset:
                 return None
@@ -160,7 +160,8 @@ async def _run_targeted_eval(inputs: dict, project_id: str) -> dict:
     examples = await loop.run_in_executor(None, _fetch_examples)
 
     if examples is None:
-        return {"error": f"Dataset '{inputs['dataset_name']}' not found"}
+        dataset_name = inputs.get("dataset_name") or inputs.get("dataset") or inputs.get("name", "unknown")
+        return {"error": f"Dataset '{dataset_name}' not found"}
     if not examples:
         return {"error": "Dataset exists but has no examples"}
 
@@ -185,7 +186,7 @@ async def _run_targeted_eval(inputs: dict, project_id: str) -> dict:
 
     failures = [r for r in summary["results"] if not r["passed"]]
     if failures:
-        await _index_failures_to_chromadb(failures, inputs["dataset_name"])
+        await _index_failures_to_chromadb(failures, inputs.get("dataset_name", "unknown"))
 
     return {
         "pass_rate":   summary["pass_rate"],

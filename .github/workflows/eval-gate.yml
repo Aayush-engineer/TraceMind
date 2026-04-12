@@ -11,6 +11,7 @@ env:
   DATASET_NAME:       production-golden-v1
   PASS_RATE_THRESHOLD: 0.80        # Block if pass rate drops below 80%
   JUDGE_CRITERIA:     accurate,helpful,professional
+  TRACEMIND_PROJECT:       ci-eval
 
 jobs:
   eval-gate:

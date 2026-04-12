@@ -13,6 +13,7 @@ import Hallucination from "./pages/Hallucination"
 
 const API_URL = import.meta.env.VITE_API_URL;
 
+
 console.log("API URL:", import.meta.env.VITE_API_URL);
 
 if (!API_URL) {
@@ -102,8 +103,8 @@ function Login({ onLogin }: { onLogin: (pid: string, key: string) => void }) {
           {/* Demo banner */}
           <div
             onClick={() => {
-              setProjectId("YOUR_DEMO_PROJECT_ID")
-              setApiKey("ef_live_YOUR_DEMO_KEY")
+              setProjectId("f3bac21d-ab7")
+              setApiKey("ef_live_gRCX47kOEYcE_-W7GIt2SYRmIF0Xx8IbVG3D4jmcCb4")
             }}
             style={{
               background: "rgba(124,58,237,0.1)",
