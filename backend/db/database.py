@@ -29,7 +29,8 @@ try:
 except ImportError:
     pass  
 
-from ..core.config import DATABASE_URL
+from ..core.config import DATABASE_URL, SQLITE_PATH as _sqlite_path
+_is_sqlite = DATABASE_URL.startswith("sqlite")
 
 if DATABASE_URL.startswith("sqlite"):
     ASYNC_DATABASE_URL = DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://", 1)

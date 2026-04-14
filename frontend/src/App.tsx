@@ -11,7 +11,10 @@ import Live          from "./pages/Live"
 import Playground    from "./pages/Playground"
 import Hallucination from "./pages/Hallucination"
 
+// const API_URL = import.meta.env.VITE_API_URL;
+
 const API_URL = import.meta.env.VITE_API_URL;
+
 
 
 console.log("API URL:", import.meta.env.VITE_API_URL);

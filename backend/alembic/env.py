@@ -27,7 +27,7 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip().strip('"').strip("'")
 if not DATABASE_URL:
     data_dir = Path(__file__).parent.parent / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    DATABASE_URL = f"sqlite:///{data_dir}/evalforge.db"
+    DATABASE_URL = f"sqlite:///{data_dir}/TraceMind.db"
 
 # Alembic needs sync URL (no +aiosqlite)
 SYNC_URL = DATABASE_URL.replace("+aiosqlite", "").replace("+asyncpg", "")
