@@ -30,7 +30,17 @@ print(f"  Threshold: {THRESHOLD:.0%}")
 print(f"{'='*54}\n")
 
 
-# ── Start eval run ─────────────────────────────────────────
+print("Waking up server...")
+for attempt in range(10):
+    try:
+        r = client.get("/health", timeout=15)
+        if r.status_code == 200:
+            print(f"  Server ready")
+            break
+    except Exception:
+        pass
+    print(f"  Waiting for server... ({attempt + 1}/10)")
+    time.sleep(10)
 
 print("Starting eval run...")
 PROJECT_NAME = os.environ.get("TRACEMIND_PROJECT", "ci-eval")
