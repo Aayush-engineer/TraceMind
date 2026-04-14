@@ -166,8 +166,8 @@ class EvalWorker:
                 ).one()
 
                 error_count = db.query(func.count(Span.id)).filter(
-                    Span.timestamp != "",
                     Span.timestamp >= hour_ago,
+                    Span.error     != None,
                     Span.error     != ""
                 ).scalar() or 0
 

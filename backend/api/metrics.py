@@ -14,26 +14,28 @@ router = APIRouter(dependencies=[Depends(get_current_project)])
 
 @router.get("/{project_id}/summary")
 async def get_summary(project_id: str, db: AsyncSession = Depends(get_db)):
-    
-    since = time.time() - 86400   
 
     proj = await db.execute(select(Project).where(Project.id == project_id))
     if not proj.scalar_one_or_none():
         raise HTTPException(404, "Project not found")
 
-    stats = await db.execute(
-        select(
-            func.count(Span.id).label("total_calls"),
-            func.avg(Span.judge_score).label("avg_score"),
-            func.sum(Span.cost_usd).label("total_cost"),
-        ).where(
-            and_(
-                Span.project_id == project_id,
-                Span.timestamp  >= since
-            )
+    # Try last 24h first; fall back to all-time if empty
+    for window in [86400, 86400 * 30, None]:
+        where_clauses = [Span.project_id == project_id]
+        if window is not None:
+            since = time.time() - window
+            where_clauses.append(Span.timestamp >= since)
+
+        stats = await db.execute(
+            select(
+                func.count(Span.id).label("total_calls"),
+                func.avg(Span.judge_score).label("avg_score"),
+                func.sum(Span.cost_usd).label("total_cost"),
+            ).where(and_(*where_clauses))
         )
-    )
-    row = stats.one()
+        row = stats.one()
+        if (row.total_calls or 0) > 0:
+            break
 
     total_calls = row.total_calls or 0
     avg_score   = round(float(row.avg_score  or 0), 2)
@@ -44,7 +46,6 @@ async def get_summary(project_id: str, db: AsyncSession = Depends(get_db)):
             select(func.count(Span.id)).where(
                 and_(
                     Span.project_id  == project_id,
-                    Span.timestamp   >= since,
                     Span.judge_score >= 7.0
                 )
             )
@@ -63,11 +64,7 @@ async def get_summary(project_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{project_id}")
-async def get_metrics(
-    project_id: str,
-    hours: int = 24,
-    db: AsyncSession = Depends(get_db)
-):
+async def get_metrics(project_id: str, hours: int = 24, db: AsyncSession = Depends(get_db)):
     now   = datetime.utcnow()
     since = now - timedelta(hours=hours)
 
@@ -82,25 +79,20 @@ async def get_metrics(
             select(
                 func.avg(Span.judge_score).label("avg_score"),
                 func.count(Span.id).label("call_count"),
-            ).where(
-                and_(
-                    Span.project_id == project_id,
-                    Span.timestamp  >= ts_start,
-                    Span.timestamp  <  ts_end,
-                )
-            )
+            ).where(and_(
+                Span.project_id == project_id,
+                Span.timestamp  >= ts_start,
+                Span.timestamp  <  ts_end,
+            ))
         )
         row = result.one()
-
         passed_result = await db.execute(
-            select(func.count(Span.id)).where(
-                and_(
-                    Span.project_id  == project_id,
-                    Span.timestamp   >= ts_start,
-                    Span.timestamp   <  ts_end,
-                    Span.judge_score >= 7.0
-                )
-            )
+            select(func.count(Span.id)).where(and_(
+                Span.project_id  == project_id,
+                Span.timestamp   >= ts_start,
+                Span.timestamp   <  ts_end,
+                Span.judge_score >= 7.0
+            ))
         )
         passed     = passed_result.scalar() or 0
         call_count = row.call_count or 0
@@ -112,6 +104,18 @@ async def get_metrics(
             "pass_rate":  pass_rate,
             "call_count": call_count,
         })
+
+    if all(p["call_count"] == 0 for p in points):
+        fallback = await db.execute(
+            select(
+                func.avg(Span.judge_score).label("avg_score"),
+                func.count(Span.id).label("call_count"),
+            ).where(Span.project_id == project_id)
+        )
+        fb = fallback.one()
+        if (fb.call_count or 0) > 0:
+            points[-1]["avg_score"]  = round(float(fb.avg_score or 0), 2)
+            points[-1]["call_count"] = fb.call_count
 
     return {"points": points, "hours": hours}
 
