@@ -29,7 +29,7 @@ try:
 except ImportError:
     pass  
 
-from ..core.config import DATABASE_URL, SQLITE_PATH as _sqlite_path
+from ..core.config import SQLITE_PATH as _sqlite_path
 _is_sqlite = DATABASE_URL.startswith("sqlite")
 
 if DATABASE_URL.startswith("sqlite"):
