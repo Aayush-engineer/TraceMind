@@ -478,6 +478,7 @@ tracemind/
 │       ├── pages/         # Dashboard, Traces, Evals, Datasets
 │       ├── components/    # Layout, Toast, ErrorBoundary, Skeleton
 │       └── App.tsx        # Router, auth, providers
+│       └── main.tsx
 ├── sdk/
 │   ├── python/            # pip install tracemind-sdk
 │   └── typescript/        # npm install tracemind-sdk
