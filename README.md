@@ -288,13 +288,13 @@ print(f"Passed — {result.pass_rate:.0%} pass rate")
 │                   TraceMind Backend                          │
 │                  (FastAPI + Python 3.11)                     │
 │                                                              │
-│  ┌──────────────┐  ┌───────────────┐  ┌──────────────────┐  │
-│  │   Ingestion  │  │  Eval Engine  │  │   EvalAgent      │  │
-│  │   /traces    │  │  LLM-as-judge │  │   ReAct + 6 tools│  │
-│  │   batched    │  │  parallel 3x  │  │   4 memory types │  │
-│  └──────┬───────┘  └──────┬────────┘  └────────┬─────────┘  │
-│         └─────────────────┴───────────────────┘│            │
-│                            ↓                                 │
+│  ┌──────────────┐  ┌───────────────┐  ┌──────────────────┐   │
+│  │   Ingestion  │  │  Eval Engine  │  │   EvalAgent      │   │
+│  │   /traces    │  │  LLM-as-judge │  │   ReAct + 6 tools│   │
+│  │   batched    │  │  parallel 3x  │  │   4 memory types │   │
+│  └──────┬───────┘  └──────┬────────┘  └────────┬─────────┘   │
+│         └─────────────────┴────────────────────┘             │
+│                           ↓                                  │
 │  ┌─────────────────────────────────────────────────────────┐ │
 │  │              Background Worker                          │ │
 │  │   Auto-score spans · Detect regressions · Fire alerts   │ │
@@ -304,9 +304,9 @@ print(f"Passed — {result.pass_rate:.0%} pass rate")
 │  │  SQLite (dev) / PostgreSQL (prod)  +  ChromaDB          │ │
 │  │  Alembic migrations  +  API key auth  +  Rate limiting  │ │
 │  └─────────────────────────────────────────────────────────┘ │
-└──────────────────┬───────────────────────────────────────────┘
-                   │ WebSocket — real-time push
-                   ▼
+└────────────────────────────┬─────────────────────────────────┘
+                             │  WebSocket — real-time push
+                             ▼
 ┌──────────────────────────────────────────────────────────────┐
 │               React Dashboard (Vite + TypeScript)            │
 │   Dashboard · Traces · Evals · Datasets                      │
