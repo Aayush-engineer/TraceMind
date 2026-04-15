@@ -97,7 +97,7 @@ Watch LLM calls arrive in real time. Pause, filter, inspect.
 ### Option 1 — Docker (one command)
 
 ```bash
-git clone https://github.com/yourusername/tracemind
+git clone https://github.com/Aayush-engineer/TraceMind
 cd tracemind
 cp .env.example .env
 # Add GROQ_API_KEY to .env (free at console.groq.com)
@@ -498,7 +498,7 @@ cd tracemind/backend
 pip install pytest pytest-asyncio httpx
 python -m pytest tests/ -v
 
-# 50 tests covering:
+# 76 tests covering:
 # - Eval engine parallel execution
 # - Regression detector all threshold types
 # - API authentication (valid/invalid/missing)
@@ -513,7 +513,6 @@ python -m pytest tests/ -v
 See [CONTRIBUTING.md](CONTRIBUTING.md) for setup guide and good first issues.
 
 **What we need most:**
-- `@tm.trace_async` decorator for async functions
 - LangChain / LlamaIndex integration examples  
 - More eval judge criteria templates
 - Pagination on Traces page
@@ -525,11 +524,12 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for setup guide and good first issues.
 
 - [ ] `trace_async` decorator for async Python functions
 - [ ] LangChain and LlamaIndex SDK integrations
-- [ ] Prompt versioning and A/B testing
+- [x] Prompt versioning and A/B testing
 - [ ] Multi-project dashboard with org-level metrics
 - [ ] Slack + Discord native integrations
 - [ ] Cost tracking per model per project
 - [ ] Hosted cloud version (free tier)
+- [ ] Response control hooks — tm.on_hallucination() callback interface for real-time intervention
 
 ---
 
