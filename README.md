@@ -447,7 +447,7 @@ POSTGRES_PASSWORD=tracemind    # Optional — docker-compose only
 ```
 tracemind/
 ├── backend/
-│   ├── api/           # Route handlers
+│   ├── api/           
 │   │   ├── traces.py      # Span ingestion + rate limiting
 │   │   ├── evals.py       # Eval runs + CSV export
 │   │   ├── datasets.py    # Dataset CRUD
