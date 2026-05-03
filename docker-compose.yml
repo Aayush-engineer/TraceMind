@@ -1,57 +1,94 @@
 version: "3.9"
 
 services:
-  postgres:
+
+  db:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
-      POSTGRES_DB:       evalforge
-      POSTGRES_USER:     evalforge
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-evalforge_dev}
+      POSTGRES_DB:       tracemind
+      POSTGRES_USER:     tracemind
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tracemind_dev}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test:     ["CMD-SHELL", "pg_isready -U evalforge"]
+      test: ["CMD-SHELL", "pg_isready -U tracemind"]
       interval: 5s
-      timeout:  3s
-      retries:  5
+      timeout: 3s
+      retries: 10
+    ports:
+      - "5432:5432"
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data:/data
     healthcheck:
-      test:     ["CMD", "redis-cli", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 5s
-      timeout:  3s
-      retries:  5
+      retries: 5
 
+  # ── Backend API ────────────────────────────────────────────────────────────
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      DATABASE_URL:    postgresql+asyncpg://tracemind:${POSTGRES_PASSWORD:-tracemind_dev}@db:5432/tracemind
+      REDIS_URL:       redis://redis:6379/0
+      GROQ_API_KEY:    ${GROQ_API_KEY}
+      SECRET_KEY:      ${SECRET_KEY:-change_this_in_production_please}
+      ENVIRONMENT:     ${ENVIRONMENT:-production}
+      LOG_LEVEL:       ${LOG_LEVEL:-INFO}
+      CORS_ORIGINS:    "http://localhost:3000,${FRONTEND_URL:-}"
     ports:
       - "8000:8000"
-    environment:
-      DATABASE_URL:      postgresql://evalforge:${POSTGRES_PASSWORD:-evalforge_dev}@postgres/evalforge
-      REDIS_URL:         redis://redis:6379
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      OPENAI_API_KEY:    ${OPENAI_API_KEY}
-      SECRET_KEY:        ${SECRET_KEY:-change_in_production}
     depends_on:
-      postgres: { condition: service_healthy }
-      redis:    { condition: service_healthy }
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     volumes:
-      - ./backend:/app
-      - chroma_data:/app/data/chroma
-    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+      - chroma_data:/app/chroma_db   # ChromaDB persistent storage
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
+  # ── Frontend ───────────────────────────────────────────────────────────────
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_URL: ${VITE_API_URL:-http://localhost:8000}
+    restart: unless-stopped
     ports:
-      - "3000:3000"
-    environment:
-      REACT_APP_API_URL: http://localhost:8000
+      - "3000:80"
     depends_on:
-      - backend
-    volumes:
-      - ./frontend/src:/app/src
+      backend:
+        condition: service_healthy
+
+  # ── pgAdmin (optional, dev only) ──────────────────────────────────────────
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL:    admin@tracemind.io
+      PGADMIN_DEFAULT_PASSWORD: tracemind
+    ports:
+      - "5050:80"
+    depends_on:
+      - db
+    profiles:
+      - dev    
 
 volumes:
   postgres_data:
-  chroma_data:      # persist ChromaDB embeddings across restarts
+  redis_data:
+  chroma_data:
