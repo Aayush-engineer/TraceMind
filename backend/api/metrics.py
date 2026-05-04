@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from ..db.database import get_db
 from ..db.models import Span, EvalRun, Project
 from ..core.auth import get_current_project
+from ..core.cost_tracker import get_cost_tracker
 
 router = APIRouter(dependencies=[Depends(get_current_project)])
 
@@ -55,11 +56,16 @@ async def get_summary(project_id: str, db: AsyncSession = Depends(get_db)):
     else:
         pass_rate = 0.0
 
+    tracker      = get_cost_tracker()
+    cost_summary = tracker.summary(project_id=project_id, days=1)
+
     return {
-        "avg_score":   avg_score,
-        "pass_rate":   pass_rate,
-        "total_calls": total_calls,
-        "cost":        total_cost
+        "avg_score":       avg_score,
+        "pass_rate":       pass_rate,
+        "total_calls":     total_calls,
+        "cost":            cost_summary.total_usd or total_cost,
+        "cost_by_model":   cost_summary.by_model,
+        "top_cost_driver": cost_summary.top_cost_driver,
     }
 
 

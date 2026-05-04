@@ -10,7 +10,7 @@ from fastapi            import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 
 from .db.database       import init_db
-from .api               import traces, evals, datasets, projects, alerts, metrics, agent
+from .api               import traces, evals, datasets, projects, alerts, metrics, agent, prompts
 from .worker.eval_worker import EvalWorker
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -124,6 +124,7 @@ app.include_router(projects.router, prefix="/api/projects", tags=["projects"])
 app.include_router(alerts.router,   prefix="/api/alerts",   tags=["alerts"])
 app.include_router(metrics.router,  prefix="/api/metrics",  tags=["metrics"])
 app.include_router(agent.router,    prefix="/api/agent",    tags=["agent"])
+app.include_router(prompts.router)
 app.include_router(hallucination.router, prefix="/api/hallucination", tags=["hallucination"])
 app.include_router(ab_testing.router, prefix="/api/ab", tags=["ab-testing"])
 

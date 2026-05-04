@@ -1,5 +1,5 @@
 from sqlalchemy import (Column, String, Float, Integer, Boolean,
-                         Text, JSON, ForeignKey, DateTime, Index)
+                         Text, JSON, ForeignKey, DateTime, Index, UniqueConstraint)
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 from datetime import datetime
@@ -150,3 +150,27 @@ class AgentRun(Base):
     error       = Column(Text,    default="")
     started_at  = Column(Float,   default=time.time)
     finished_at = Column(Float,   nullable=True)
+
+
+class PromptVersion(Base):
+    __tablename__ = "prompt_versions"
+
+    id           = Column(String,  primary_key=True, default=lambda: str(uuid.uuid4())[:13])
+    version_id   = Column(String,  nullable=False, unique=True)   # "support_prompt:v3"
+    name         = Column(String,  nullable=False)
+    version_num  = Column(Integer, nullable=False)
+    project_id   = Column(String,  ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    content      = Column(Text,    nullable=False)
+    content_hash = Column(String,  nullable=False)
+    tags         = Column(JSON,    default=list)
+    author       = Column(String,  default="api")
+    description  = Column(String,  default="")
+    parent_version = Column(String, nullable=True)
+    avg_score    = Column(Float,   nullable=True)
+    pass_rate    = Column(Float,   nullable=True)
+    total_traces = Column(Integer, default=0)
+    created_at   = Column(DateTime, default=datetime.utcnow)
+
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", "version_num", name="uq_prompt_version"),
+    )

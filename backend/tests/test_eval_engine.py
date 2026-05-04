@@ -1,5 +1,4 @@
 import pytest
-import json
 from unittest.mock import patch
 
 
@@ -50,8 +49,10 @@ class TestRunEvalParallel:
     @pytest.mark.asyncio
     async def test_all_pass(self):
         from backend.core.eval_engine import run_eval_parallel
-        with patch("backend.core.eval_engine.chat",
-                   return_value='{"overall":9.0,"pass":true,"scores":{},"reasoning":"great"}'):
+        with patch(
+            "backend.core.eval_engine.chat",
+            return_value='{"score":9.0,"passed":true,"dimensions":{},"reasoning":"great"}'
+        ):
             r = await run_eval_parallel(self._examples(3), lambda x: "good", ["q"])
         assert r["passed"] == 3 and r["pass_rate"] == 1.0
 
@@ -59,19 +60,21 @@ class TestRunEvalParallel:
     async def test_all_fail(self):
         from backend.core.eval_engine import run_eval_parallel
         with patch("backend.core.eval_engine.chat",
-                   return_value='{"overall":2.0,"pass":false,"scores":{},"reasoning":"bad"}'):
+                   return_value='{"score":2.0,"passed":false,"dimensions":{},"reasoning":"bad"}'):
             r = await run_eval_parallel(self._examples(3), lambda x: "bad", ["q"])
         assert r["passed"] == 0 and r["pass_rate"] == 0.0
 
     @pytest.mark.asyncio
     async def test_mixed_pass_fail(self):
         from backend.core.eval_engine import run_eval_parallel
-        responses = iter([
-            '{"overall":9.0,"pass":true,"scores":{},"reasoning":"good"}',
-            '{"overall":9.0,"pass":true,"scores":{},"reasoning":"good"}',
-            '{"overall":3.0,"pass":false,"scores":{},"reasoning":"bad"}',
-            '{"overall":3.0,"pass":false,"scores":{},"reasoning":"bad"}',
-        ])
+        pass_resp = '{"score":9.0,"passed":true,"dimensions":{},"reasoning":"good"}'
+        fail_resp = '{"score":3.0,"passed":false,"dimensions":{},"reasoning":"bad"}'
+        responses = (
+            [pass_resp] * 2 +   
+            [pass_resp] * 2 +   
+            [fail_resp] * 2 +   
+            [fail_resp] * 2     
+        )
         with patch("backend.core.eval_engine.chat", side_effect=responses):
             r = await run_eval_parallel(self._examples(4), lambda x: "ans", ["q"])
         assert r["passed"] == 2 and r["failed"] == 2
@@ -85,7 +88,7 @@ class TestRunEvalParallel:
             {"id":"3","input":"q","expected":"a","criteria":[],"category":"billing"},
         ]
         with patch("backend.core.eval_engine.chat",
-                   return_value='{"overall":8.0,"pass":true,"scores":{},"reasoning":"ok"}'):
+                   return_value='{"score":8.0,"passed":true,"dimensions":{},"reasoning":"ok"}'):
             r = await run_eval_parallel(examples, lambda x: "ans", ["q"])
         assert r["by_category"]["refunds"]["total"] == 2
         assert r["by_category"]["billing"]["total"] == 1
@@ -108,7 +111,7 @@ class TestRunEvalParallel:
     async def test_total_cost_zero_for_groq(self):
         from backend.core.eval_engine import run_eval_parallel
         with patch("backend.core.eval_engine.chat",
-                   return_value='{"overall":8.0,"pass":true,"scores":{},"reasoning":"ok"}'):
+                   return_value='{"score":8.0,"passed":true,"dimensions":{},"reasoning":"ok"}'):
             r = await run_eval_parallel(self._examples(2), lambda x: "ans", ["q"])
         assert r["total_cost"] == 0.0
 
@@ -208,3 +211,4 @@ class TestRegressionDetector:
         )
         types = [x.type for x in r]
         assert "quality_regression" not in types
+    

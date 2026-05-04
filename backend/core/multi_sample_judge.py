@@ -304,18 +304,24 @@ class MultiSampleEvalEngine:
                             "Apply the rubric exactly as written. "
                             "Return ONLY valid JSON."
                         ),
-                        model      = "fast" if self._fast_mode else "smart",
+                        model      = "fast",
                         max_tokens = 300,
                         json_mode  = True,
                     )
                 )
+            except (StopIteration, RuntimeError, Exception) as e:
+                logger.warning(f"Judge sample failed: {e}")
+                return None
 
+            try:
                 clean = raw.replace("```json", "").replace("```", "").strip()
                 d     = json.loads(clean)
 
                 return JudgeSample(
-                    score      = min(10.0, max(0.0, float(d.get("score", 0)))),
-                    passed     = bool(d.get("passed", False)),
+                    score = min(10.0, max(0.0, float(
+                        d.get("score") or d.get("overall") or 0
+                    ))),
+                    passed = bool(d.get("passed") if "passed" in d else d.get("pass", False)),
                     reasoning  = str(d.get("reasoning", ""))[:200],
                     dimensions = {
                         k: float(v)

@@ -5,6 +5,7 @@ import logging
 from typing    import Callable, Optional
 from dataclasses import dataclass
 from .llm      import chat
+from .multi_sample_judge import MultiSampleEvalEngine
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,8 @@ async def run_case(
     example:        dict,
     system_fn:      Callable[[str], str],
     judge_criteria: list[str],
-    semaphore:      asyncio.Semaphore
+    semaphore:      asyncio.Semaphore,
+    judge_engine:   "MultiSampleEvalEngine" = None,    
 ) -> CaseResult:
     async with semaphore:
         t0    = time.time()
@@ -61,64 +63,26 @@ async def run_case(
                 error            = error
             )
 
-        # Step 2 — judge the output
-        criteria_list = "\n".join(f"- {c}" for c in judge_criteria)
-        dimensions    = {c.split()[0].lower(): c for c in judge_criteria}
+        # Step 2 — judge the output using multi-sample consensus
 
-        dim_defaults  = ", ".join(f'"{k}": 0' for k in dimensions.keys())
-
-        judge_prompt = f"""Task given to AI: {example['input']}
-
-Expected behavior: {example.get('expected', 'Not specified')}
-
-AI's actual response: {output}
-
-Criteria to evaluate:
-{criteria_list}
-
-Return ONLY valid JSON:
-{{
-  "scores":    {{{dim_defaults}}},
-  "overall":   0.0,
-  "pass":      false,
-  "reasoning": "2 sentence explanation"
-}}"""
-
-        judge_system = """You are a strict, objective AI evaluator.
-Score AI outputs against specific criteria.
-10=exceptional, 8-9=good, 6-7=acceptable, 4-5=poor, 1-3=failing.
-Be strict. Reserve 9-10 for truly outstanding responses.
-Return ONLY valid JSON, no markdown."""
-
-        loop = asyncio.get_running_loop()
-
-        raw = await loop.run_in_executor(
-            None,
-            lambda: chat(
-                messages   = [{"role": "user", "content": judge_prompt}],
-                system     = judge_system,
-                model      = "fast",
-                max_tokens = 200,
-                json_mode  = True
-            )
+        result = await judge_engine.evaluate_case(
+            input_text = example["input"],
+            output     = output,
+            expected   = example.get("expected", ""),
+            criteria   = judge_criteria,
         )
 
-        try:
-            cleaned    = raw.replace("```json", "").replace("```", "").strip()
-            verdict    = json.loads(cleaned)
-            score      = float(verdict.get("overall", 0))
-            passed     = bool(verdict.get("pass", score >= 7.0))
-            dim_scores = {
-                k: float(v)
-                for k, v in verdict.get("scores", {}).items()
-            }
-            reasoning  = verdict.get("reasoning", "")
-        except Exception as e:
-            logger.warning(f"Judge parse error: {e} | raw: {raw[:200]}")
-            score      = 0
-            passed     = False
-            dim_scores = {}
-            reasoning  = f"Judge parse error: {e}"
+        score      = result.score
+        passed     = result.passed
+        dim_scores = result.dimensions
+        reasoning  = result.reasoning
+
+        # Log confidence — ambiguous cases are flagged
+        if result.is_ambiguous:
+            logger.warning(
+                f"Low judge agreement on case {example.get('id', '?')} "
+                f"— samples={result.samples}, agreement={result.agreement:.2f}"
+            )
 
         return CaseResult(
             example_id       = example["id"],
@@ -138,12 +102,20 @@ async def run_eval_parallel(
     examples:       list[dict],
     system_fn:      Callable[[str], str],
     judge_criteria: list[str],
-    max_concurrent: int      = 3,    
+    max_concurrent: int      = 2,    
     progress_cb:    Optional[Callable] = None
 ) -> dict:
     semaphore = asyncio.Semaphore(max_concurrent)
-    tasks     = [
-        run_case(ex, system_fn, judge_criteria, semaphore)
+
+    judge_engine = MultiSampleEvalEngine(
+        chat_fn   = chat,
+        n_samples = 2,
+        threshold = 7.0,
+        fast_mode = True,
+    )
+
+    tasks = [
+        run_case(ex, system_fn, judge_criteria, semaphore, judge_engine)  
         for ex in examples
     ]
 

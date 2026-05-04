@@ -315,7 +315,7 @@ export default function Dashboard({ projectId, apiKey, apiUrl }: Props) {
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={180}>
-              <AreaChart data={metrics} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+              <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
                 <defs>
                   <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%"   stopColor="#a78bfa" stopOpacity={0.3}/>
@@ -544,3 +544,6 @@ export default function Dashboard({ projectId, apiKey, apiUrl }: Props) {
     </div>
   )
 }
+
+
+

@@ -13,7 +13,7 @@ detector = RegressionDetector()
 class EvalWorker:
 
     POLL_INTERVAL       = 10   
-    SCORE_BATCH_SIZE    = 20   
+    SCORE_BATCH_SIZE    = 5 
     MAX_RETRIES         = 3    
 
     def __init__(self):
@@ -104,6 +104,7 @@ class EvalWorker:
                 await loop.run_in_executor(
                     None, self._save_score, span.id, score
                 )
+                await asyncio.sleep(0.5)   
             except Exception:
                 logger.exception(f"Failed to score span {span.id}")
 
@@ -215,14 +216,20 @@ class EvalWorker:
                 
 
     def _save_alerts(self, regressions: list) -> None:
+        """Save regression alerts. Gets a real project_id from DB first."""
         from ..db.database import get_sync_db
-        from ..db.models   import Alert
+        from ..db.models   import Alert, Project
 
         db = get_sync_db()
         try:
+            project = db.query(Project).first()
+            if not project:
+                logger.warning("No projects in DB yet — skipping alert")
+                return
+
             for reg in regressions:
                 alert = Alert(
-                    project_id = getattr(reg, "project_id", "system"),
+                    project_id = project.id,
                     type       = reg.type,
                     severity   = reg.severity,
                     message    = reg.action,

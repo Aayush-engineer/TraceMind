@@ -121,7 +121,7 @@ async def execute_tool(name: str, inputs: dict, project_id: str) -> dict:
     elif name == "generate_test_cases":
         return await _generate_test_cases(inputs, project_id)
     elif name == "fetch_recent_traces":
-        return await _fetch_recent_traces(inputs)
+        return await _fetch_recent_traces(inputs, project_id)
     elif name == "analyze_failure_pattern":
         return await _analyze_failure_pattern(inputs)
     elif name == "send_alert":
@@ -326,7 +326,15 @@ async def _generate_test_cases(inputs: dict, project_id: str) -> dict:
         "adversarial": "inputs designed to probe system weaknesses"
     }.get(difficulty, "medium complexity")
 
-    prompt = f"""Failure pattern to cover: {inputs['failure_pattern']}
+    failure_pattern = (
+        inputs.get("failure_pattern") or
+        inputs.get("pattern") or
+        inputs.get("description") or
+        inputs.get("failure_description") or
+        str(inputs)[:200]
+    )
+
+    prompt = f"""Failure pattern to cover: {failure_pattern}
 Difficulty: {difficulty} — {diff_desc}
 Count: {inputs.get('count', 5)}
 
@@ -390,7 +398,7 @@ Generate {inputs.get('count', 5)} test cases as a JSON array:
     }
 
 
-async def _fetch_recent_traces(inputs: dict) -> dict:
+async def _fetch_recent_traces(inputs: dict, project_id: str = "") -> dict:
     loop = asyncio.get_running_loop()
 
     def _fetch():
@@ -398,9 +406,10 @@ async def _fetch_recent_traces(inputs: dict) -> dict:
         since = time.time() - inputs.get("hours", 24) * 3600
         limit = inputs.get("limit", 20)
         min_s = inputs.get("min_score", 6.0)
+        pid   = inputs.get("project_id") or project_id
         try:
             spans = db.query(Span).filter(
-                Span.project_id  == inputs["project_id"],
+                Span.project_id  == pid,
                 Span.timestamp   >= since,
                 Span.judge_score <  min_s
             ).order_by(Span.judge_score.asc()).limit(limit).all()
