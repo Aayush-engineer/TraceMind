@@ -203,15 +203,56 @@ Return ONLY a valid JSON array, no markdown, no explanation:
             system     = "You are a precise fact-checker. Extract and verify claims. Return ONLY valid JSON.",
             model      = model,
             max_tokens = 1500,
-            json_mode  = True,
+            json_mode  = False,
         )
 
         try:
             cleaned = raw.replace("```json", "").replace("```", "").strip()
             return json.loads(cleaned)
-        except json.JSONDecodeError:
-            logger.warning(f"Claim extraction JSON parse failed: {raw[:200]}")
-            return []
+
+            if isinstance(parsed, list):
+                claims_list = parsed
+            elif isinstance(parsed, dict):
+                if "claims" in parsed:
+                    claims_list = parsed["claims"]
+                elif "claim" in parsed:
+                    # Single claim object returned instead of array
+                    claims_list = [parsed]
+                else:
+                    # Dict with unknown keys — try values
+                    claims_list = list(parsed.values()) if parsed else []
+            else:
+                claims_list = []
+
+            valid = [c for c in claims_list if isinstance(c, dict) and c.get("claim")]
+
+            if not valid:
+                logger.warning(
+                    f"Claim extraction returned 0 valid claims from response: "
+                    f"'{response[:100]}'. Using fallback single-claim."
+                )
+                valid = [{
+                    "claim":      response[:200],
+                    "type":       "none",
+                    "grounded":   True,
+                    "confidence": 0.5,
+                    "evidence":   "Extraction failed — full response treated as single claim for review",
+                    "risk":       "low",
+                }]
+
+            return valid
+
+        except json.JSONDecodeError as e:
+            logger.warning(f"Claim extraction JSON parse failed: {e} | raw: {raw[:300]}")
+            # Fallback: treat full response as one unverified claim
+            return [{
+                "claim":      response[:200],
+                "type":       "fabrication",
+                "grounded":   False,
+                "confidence": 0.5,
+                "evidence":   f"JSON parse failed — manual review required",
+                "risk":       "medium",
+            }]
 
     def _analyze_claims(
         self,
