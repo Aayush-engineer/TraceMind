@@ -105,9 +105,20 @@ def chat_with_usage(
     }
 
 
+from sentence_transformers import SentenceTransformer
+import logging
+
+logger = logging.getLogger(__name__)
+
+_embed_model: SentenceTransformer | None = None
+
+def _get_embed_model() -> SentenceTransformer:
+    global _embed_model
+    if _embed_model is None:
+        logger.info("Loading sentence-transformers model (once)...")
+        _embed_model = SentenceTransformer("all-MiniLM-L6-v2")
+    return _embed_model
+
 def embed(texts: list[str]) -> list[list[float]]:
-    from sentence_transformers import SentenceTransformer
-    model      = SentenceTransformer("all-MiniLM-L6-v2")
-    embeddings = model.encode(texts)
-    result = embeddings.tolist() if hasattr(embeddings, "tolist") else list(embeddings)
-    return result
+    model = _get_embed_model()
+    return model.encode(texts, show_progress_bar=False).tolist()
