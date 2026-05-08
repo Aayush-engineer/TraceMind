@@ -117,7 +117,7 @@ async def execute_tool(name: str, inputs: dict, project_id: str) -> dict:
     if name == "run_targeted_eval":
         return await _run_targeted_eval(inputs, project_id)
     elif name == "search_similar_failures":
-        return await _search_similar_failures(inputs)
+        return await _search_similar_failures(inputs, project_id)
     elif name == "generate_test_cases":
         return await _generate_test_cases(inputs, project_id)
     elif name == "fetch_recent_traces":
@@ -186,7 +186,7 @@ async def _run_targeted_eval(inputs: dict, project_id: str) -> dict:
 
     failures = [r for r in summary["results"] if not r["passed"]]
     if failures:
-        await _index_failures_to_chromadb(failures, inputs.get("dataset_name", "unknown"))
+        await _index_failures_to_chromadb(failures, inputs.get("dataset_name", "unknown"), project_id)
 
     return {
         "pass_rate":   summary["pass_rate"],
@@ -207,7 +207,7 @@ async def _run_targeted_eval(inputs: dict, project_id: str) -> dict:
     }
 
 
-async def _index_failures_to_chromadb(failures: list, dataset_name: str):
+async def _index_failures_to_chromadb(failures: list, dataset_name: str, project_id: str = ""):
     loop = asyncio.get_running_loop()
 
     texts = [
@@ -234,11 +234,12 @@ async def _index_failures_to_chromadb(failures: list, dataset_name: str):
         embeddings.append(embedding)
         documents.append(texts[i])
         metadatas.append({
-            "dataset":   dataset_name,
-            "score":     float(failure["judge_score"]),
-            "timestamp": time.time(),
-            "input":     failure["input"][:200],
-            "reasoning": failure["reasoning"][:200]
+            "dataset":    dataset_name,
+            "project_id": project_id,       
+            "score":      float(failure["judge_score"]),
+            "timestamp":  time.time(),
+            "input":      failure["input"][:200],
+            "reasoning":  failure["reasoning"][:200]
         })
 
     failure_collection.upsert(
@@ -249,7 +250,7 @@ async def _index_failures_to_chromadb(failures: list, dataset_name: str):
     )
 
 
-async def _search_similar_failures(inputs: dict) -> dict:
+async def _search_similar_failures(inputs: dict, project_id: str = "") -> dict:
     loop = asyncio.get_running_loop()
 
     description = (
@@ -271,11 +272,26 @@ async def _search_similar_failures(inputs: dict) -> dict:
     if count == 0:
         return {"found": 0, "message": "No past failures indexed yet."}
 
-    results = failure_collection.query(
-        query_embeddings = [query_embedding],
-        n_results        = min(limit, count),
-        include          = ["documents", "metadatas", "distances"]
-    )
+    try:
+        results = failure_collection.query(
+            query_embeddings = [query_embedding],
+            n_results        = min(limit, count),
+            where            = {"project_id": project_id},   # ← scoped
+            include          = ["documents", "metadatas", "distances"]
+        )
+        # Fall back to global if project has no past failures yet
+        if not results["documents"] or not results["documents"][0]:
+            results = failure_collection.query(
+                query_embeddings = [query_embedding],
+                n_results        = min(limit, count),
+                include          = ["documents", "metadatas", "distances"]
+            )
+    except Exception:
+        results = failure_collection.query(
+            query_embeddings = [query_embedding],
+            n_results        = min(limit, count),
+            include          = ["documents", "metadatas", "distances"]
+        )
 
     similar = []
     if results["documents"] and results["documents"][0]:
@@ -667,7 +683,6 @@ Be specific. Always generate new test cases for any failure pattern found."""
         system = f"""{self.SYSTEM_PROMPT}
 
 {self._project_context}
-{self._past_runs}
 
 Available tools:
 {tool_desc}
@@ -722,6 +737,9 @@ ANSWER: your detailed answer here"""
                     f"\nStep {iteration+1}: Used {tool_name}\n"
                     f"Result: {json.dumps(result)[:500]}\n"
                 )
+
+                if iteration == 0 and self._past_runs:
+                    context += f"\nRelevant past investigations (for reference only):\n{self._past_runs}\n"
 
             elif "ANSWER:" in response:
                 final = response.split("ANSWER:")[1].strip()
