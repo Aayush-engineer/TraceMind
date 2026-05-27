@@ -1,19 +1,42 @@
 ---
 name: Bug report
-about: Something is broken
+about: Something is broken or not working as expected
+title: '[Bug] '
+labels: bug
+assignees: ''
 ---
 
-**What happened:**
+## What happened
 
-**What you expected:**
+<!-- Clear description of what went wrong -->
 
-**Steps to reproduce:**
+## What you expected
+
+<!-- What should have happened instead -->
+
+## Steps to reproduce
+
+```
 1. 
 2. 
+3. 
+```
 
-**Environment:**
-- OS:
-- Python version:
-- TraceMind version:
+## Environment
 
-**Error message or logs:**
+- TraceMind version: 
+- Python version: 
+- How deployed: Docker / Local / Render
+- OS: 
+
+## Logs
+
+<!-- Paste any relevant error messages or stack traces -->
+
+```
+paste logs here
+```
+
+## Verification
+
+<!-- Have you run verify_all.py? What did it show? -->

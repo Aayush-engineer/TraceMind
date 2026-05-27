@@ -1,13 +1,25 @@
 ---
 name: Feature request
-about: Suggest an improvement
+about: Suggest something new for TraceMind
+title: '[Feature] '
+labels: enhancement
+assignees: ''
 ---
 
-**Problem this solves:**
+## Problem this solves
 
-**Proposed solution:**
+<!-- What specific monitoring or evaluation problem does this address? -->
 
-**Alternatives considered:**
+## Proposed solution
 
-**Would you be willing to contribute this?**
-[ ] Yes  [ ] No
+<!-- How would this work from a user's perspective? -->
+
+## Alternatives considered
+
+<!-- Other ways to solve this, and why this approach is better -->
+
+## Would you be willing to implement this?
+
+- [ ] Yes, I can build this and submit a PR
+- [ ] I can help with design/review but not implementation
+- [ ] No, but I'd find it very useful
