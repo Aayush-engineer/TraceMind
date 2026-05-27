@@ -37,7 +37,8 @@ class Span(Base):
     cost_usd    = Column(Float,  default=0.0)
     tokens_in   = Column(Integer, default=0)
     tokens_out  = Column(Integer, default=0)
-    timestamp   = Column(Float,  nullable=False)   # Unix timestamp
+    timestamp   = Column(Float,  nullable=False)   
+    tool_calls_json = Column(JSON, default=list)
 
     __table_args__ = (
         Index("idx_spans_project_ts", "project_id", "timestamp"),

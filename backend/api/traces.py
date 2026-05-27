@@ -31,6 +31,8 @@ class SpanPayload(BaseModel):
     metadata:    Optional[dict] = None
     status:      str       = "success"
     timestamp:   float
+    tool_calls:  Optional[list] = None
+    expected_tools: Optional[list] = None
 
 
 class BatchSpanPayload(BaseModel):

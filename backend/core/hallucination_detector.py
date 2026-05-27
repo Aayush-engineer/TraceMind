@@ -317,6 +317,78 @@ Return ONLY a valid JSON array, no markdown, no explanation:
             return "medium"
         return "low"
 
+    async def consistency_check(
+        self,
+        question:   str,
+        response_fn: callable,   
+        n_variants:  int = 3,
+    ) -> dict:
+        from .llm import chat
+        loop = asyncio.get_running_loop()
+
+        variants_raw = await loop.run_in_executor(None, lambda: chat(
+            messages=[{"role": "user", "content":
+                f"Write {n_variants} different ways to ask this question "
+                f"that mean exactly the same thing. Return ONLY a JSON array "
+                f"of strings.\n\nQuestion: {question}"}],
+            system="Generate question paraphrases. Return ONLY JSON array.",
+            model="fast",
+            max_tokens=200,
+            json_mode=False,
+        ))
+
+        try:
+            import json
+            cleaned = variants_raw.replace("```json","").replace("```","").strip()
+            variants = json.loads(cleaned)
+            if not isinstance(variants, list):
+                variants = [question]
+        except Exception:
+            variants = [question]
+
+        responses = []
+        for v in [question] + variants[:n_variants-1]:
+            try:
+                r = await loop.run_in_executor(None, response_fn, v)
+                responses.append({"question": v, "response": str(r)[:500]})
+            except Exception as e:
+                responses.append({"question": v, "response": f"ERROR: {e}"})
+
+        if len(responses) < 2:
+            return {"consistent": True, "confidence": 0.5, "variants_tested": 1}
+
+        consistency_prompt = f"""These are responses to semantically identical questions.
+    Are they factually consistent with each other?
+
+    {chr(10).join(f'Q{i+1}: {r["question"]}{chr(10)}A{i+1}: {r["response"]}' 
+                for i, r in enumerate(responses))}
+
+    Return ONLY JSON:
+    {{"consistent": true, "confidence": 0.9, 
+    "inconsistencies": ["specific contradiction found"], 
+    "risk": "low"}}"""
+
+        raw = await loop.run_in_executor(None, lambda: chat(
+            messages=[{"role":"user","content": consistency_prompt}],
+            system="Check if these responses are factually consistent. Return ONLY JSON.",
+            model="smart",
+            max_tokens=300,
+            json_mode=False,
+        ))
+
+        try:
+            result = json.loads(raw.replace("```json","").replace("```","").strip())
+            return {
+                "consistent":       bool(result.get("consistent", True)),
+                "confidence":       float(result.get("confidence", 0.5)),
+                "inconsistencies":  result.get("inconsistencies", []),
+                "risk":             result.get("risk", "low"),
+                "variants_tested":  len(responses),
+                "responses":        responses,
+            }
+        except Exception:
+            return {"consistent": True, "confidence": 0.3, "variants_tested": len(responses)}
+
     async def batch_analyze(
         self,
         items: list[dict],

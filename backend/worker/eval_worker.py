@@ -213,7 +213,59 @@ class EvalWorker:
                     "message":  reg.action,
                 })
 
-                
+    async def _check_semantic_drift(self):
+        loop = asyncio.get_running_loop()
+
+        def _compute():
+            from ..core.llm import embed
+            db    = get_sync_db()
+            try:
+                import time
+                now       = time.time()
+                week_ago  = now - 7 * 86400
+                month_ago = now - 30 * 86400
+
+                recent = db.query(Span).filter(
+                    Span.timestamp   >= week_ago,
+                    Span.output      != "",
+                    Span.judge_score != None,
+                ).limit(50).all()
+
+                baseline = db.query(Span).filter(
+                    Span.timestamp   >= month_ago,
+                    Span.timestamp   <  week_ago,
+                    Span.output      != "",
+                    Span.judge_score != None,
+                ).limit(50).all()
+
+                if len(recent) < 10 or len(baseline) < 10:
+                    return None
+
+                recent_lengths   = [len(s.output) for s in recent]
+                baseline_lengths = [len(s.output) for s in baseline]
+                avg_recent   = sum(recent_lengths)   / len(recent_lengths)
+                avg_baseline = sum(baseline_lengths) / len(baseline_lengths)
+                length_drift = abs(avg_recent - avg_baseline) / max(avg_baseline, 1)
+
+                return {
+                    "length_drift_pct":  round(length_drift * 100, 1),
+                    "recent_avg_length": round(avg_recent),
+                    "baseline_avg_length": round(avg_baseline),
+                    "behavioral_drift_detected": length_drift > 0.3,
+                    "recent_count":   len(recent),
+                    "baseline_count": len(baseline),
+                }
+            finally:
+                db.close()
+
+        drift_result = await loop.run_in_executor(None, _compute)
+        if drift_result and drift_result.get("behavioral_drift_detected"):
+            logger.warning(
+                f"Behavioral drift detected: response length changed "
+                f"{drift_result['length_drift_pct']:.0f}% "
+                f"({drift_result['baseline_avg_length']} → "
+                f"{drift_result['recent_avg_length']} chars)"
+            )            
 
     def _save_alerts(self, regressions: list) -> None:
         """Save regression alerts. Gets a real project_id from DB first."""

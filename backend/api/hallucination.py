@@ -95,3 +95,29 @@ async def get_span_hallucination(
         "span_id":  span_id,
         "analysis": report.to_dict(),
     }
+
+@router.post("/consistency-check")
+async def consistency_check(
+    body:    dict,
+    project: Project = Depends(get_current_project),
+):
+    from ..core.hallucination_detector import detector
+    from ..core.llm import chat
+
+    question = body.get("question", "")
+    system_prompt = body.get("system_prompt", "You are a helpful assistant.")
+
+    def response_fn(q: str) -> str:
+        return chat(
+            messages=[{"role":"user","content":q}],
+            system=system_prompt,
+            model="fast",
+            max_tokens=512,
+        )
+
+    result = await detector.consistency_check(
+        question    = question,
+        response_fn = response_fn,
+        n_variants  = body.get("n_variants", 3),
+    )
+    return result
