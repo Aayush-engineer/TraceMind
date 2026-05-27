@@ -48,16 +48,17 @@ def run_migrations_offline() -> None:
 
 
 def run_migrations_online() -> None:
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
-    )
+    url = config.get_main_option("sqlalchemy.url")
+
+    # Neon requires SSL
+    connect_args = {"sslmode": "require"} if "neon" in (url or "") else {}
+
+    connectable = create_engine(url, connect_args=connect_args)
+
     with connectable.connect() as connection:
         context.configure(
-            connection=connection,
-            target_metadata=target_metadata,
-            render_as_batch=True,
+            connection = connection,
+            target_metadata = target_metadata
         )
         with context.begin_transaction():
             context.run_migrations()

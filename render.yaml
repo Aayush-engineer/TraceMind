@@ -4,11 +4,15 @@ services:
     runtime: python
     rootDir: .
     buildCommand: pip install -r backend/requirements.txt
-    startCommand: cd backend && alembic upgrade head && cd .. && uvicorn backend.main:app --host 0.0.0.0 --port $PORT
+    startCommand: cd backend && alembic upgrade head && cd .. && uvicorn backend.main:app --host 0.0.0.0 --port $PORT --workers 1
     envVars:
+      - key: DATABASE_URL
+        sync: false          
       - key: GROQ_API_KEY
         sync: false
       - key: SECRET_KEY
         sync: false
       - key: PYTHON_VERSION
         value: 3.11.0
+      - key: ENVIRONMENT
+        value: production

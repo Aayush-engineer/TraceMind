@@ -7,9 +7,10 @@ load_dotenv(_env_path)
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import (
+    create_async_engine, AsyncSession, async_sessionmaker
+)
 from typing import AsyncGenerator
-
 from .models import Base
 
 _raw_url = os.getenv("DATABASE_URL", "").strip()
@@ -20,65 +21,66 @@ if not _raw_url:
     _raw_url = f"sqlite:///{_data_dir / 'TraceMind.db'}"
 
 DATABASE_URL = _raw_url
+_is_sqlite   = DATABASE_URL.startswith("sqlite")
 
-def _import_all_models():
-    from ..api import agent  
+def _make_sync_url(url: str) -> str:
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql://", 1)
+    return url
 
-try:
-    _import_all_models()
-except ImportError:
-    pass  
+def _make_async_url(url: str) -> str:
+    if url.startswith("sqlite://"):
+        return url.replace("sqlite://", "sqlite+aiosqlite://", 1)
+    if url.startswith("postgresql://"):
+        return url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgres://"):
+        return url.replace("postgres://", "postgresql+asyncpg://", 1)
+    if url.startswith("postgresql+asyncpg://"):
+        return url   # already correct
+    return url
 
-from ..core.config import SQLITE_PATH as _sqlite_path
-_is_sqlite = DATABASE_URL.startswith("sqlite")
+SYNC_DATABASE_URL  = _make_sync_url(DATABASE_URL)
+ASYNC_DATABASE_URL = _make_async_url(DATABASE_URL)
 
-if DATABASE_URL.startswith("sqlite"):
-    ASYNC_DATABASE_URL = DATABASE_URL.replace("sqlite://", "sqlite+aiosqlite://", 1)
-elif DATABASE_URL.startswith("postgresql://"):
-    ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
-elif DATABASE_URL.startswith("postgres://"):
-    ASYNC_DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
-else:
-    ASYNC_DATABASE_URL = DATABASE_URL
-
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+connect_args = {"check_same_thread": False} if _is_sqlite else {}
 
 sync_engine = create_engine(
-    DATABASE_URL,
-    connect_args=connect_args,
-    pool_pre_ping=True,      
-    pool_size=5,
-    max_overflow=10,
+    SYNC_DATABASE_URL,
+    connect_args  = connect_args,
+    pool_pre_ping = True,
+    pool_size     = 5 if not _is_sqlite else 1,
+    max_overflow  = 10 if not _is_sqlite else 0,
 )
 
 SessionLocal = sessionmaker(
-    bind=sync_engine,
-    autocommit=False,
-    autoflush=False,
+    bind       = sync_engine,
+    autocommit = False,
+    autoflush  = False,
 )
 
-if DATABASE_URL.startswith("sqlite"):
+if _is_sqlite:
     async_engine = create_async_engine(
         ASYNC_DATABASE_URL,
-        echo=False,
+        echo = False,
     )
 else:
     async_engine = create_async_engine(
         ASYNC_DATABASE_URL,
-        pool_pre_ping=True,
-        pool_size=5,
-        max_overflow=10,
-        echo=False,
+        pool_pre_ping = True,
+        pool_size     = 5,
+        max_overflow  = 10,
+        echo          = False,
+        # Neon requires SSL
+        connect_args  = {"ssl": "require"} if "neon" in ASYNC_DATABASE_URL else {},
     )
 
 AsyncSessionLocal = async_sessionmaker(
-    bind=async_engine,
-    class_=AsyncSession,
-    autocommit=False,
-    autoflush=False,
-    expire_on_commit=False,  
+    bind           = async_engine,
+    class_         = AsyncSession,
+    autocommit     = False,
+    autoflush      = False,
+    expire_on_commit = False,
 )
-
 
 async def get_db() -> AsyncGenerator[AsyncSession, None]:
     async with AsyncSessionLocal() as session:
@@ -97,27 +99,22 @@ def get_sync_db() -> Session:
 
 
 async def init_db():
-    import subprocess, sys
-    from pathlib import Path
-
-    backend_dir = Path(__file__).parent.parent
-    result = subprocess.run(
-        [sys.executable, "-m", "alembic", "upgrade", "head"],
-        cwd=str(backend_dir),
-        capture_output=True,
-        text=True,
-        timeout=30
-    )
-    if result.returncode == 0:
-        print("  DB migrations applied successfully")
-    else:
-        print(f"  Alembic warning: {result.stderr[:200]}")
-        print("  Falling back to create_all")
-
+    """
+    Verify database connection at startup.
+    Alembic migrations run BEFORE this in startCommand/render.yaml.
+    Running Alembic here caused startup timeouts with Neon cold starts.
+    """
     if _is_sqlite:
         Base.metadata.create_all(bind=sync_engine)
-    else:
-        async with async_engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+        print(f"  DB ready (SQLite): {DATABASE_URL}")
+        return
 
-    print(f"  DB ready: {DATABASE_URL.split('@')[-1] if '@' in DATABASE_URL else DATABASE_URL}")
+    try:
+        async with async_engine.begin() as conn:
+            await conn.execute(text("SELECT 1"))
+        db_display = DATABASE_URL.split("@")[-1] if "@" in DATABASE_URL else DATABASE_URL
+        print(f"  DB ready: {db_display}")
+    except Exception as e:
+        print(f"  DB connection failed: {e}")
+        print("  Check DATABASE_URL in Render environment variables")
+        raise
