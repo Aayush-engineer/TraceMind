@@ -29,6 +29,14 @@ def _make_sync_url(url: str) -> str:
     return url
 
 def _make_async_url(url: str) -> str:
+    # Strip query params asyncpg can't handle in the URL string
+    import re
+    url = re.sub(r'[?&]sslmode=[^&]*', '', url)
+    url = re.sub(r'[?&]channel_binding=[^&]*', '', url)
+    url = re.sub(r'[?&]connect_timeout=[^&]*', '', url)
+    # Clean up trailing ? if all params were stripped
+    url = url.rstrip('?').rstrip('&')
+
     if url.startswith("sqlite://"):
         return url.replace("sqlite://", "sqlite+aiosqlite://", 1)
     if url.startswith("postgresql://"):
@@ -36,7 +44,7 @@ def _make_async_url(url: str) -> str:
     if url.startswith("postgres://"):
         return url.replace("postgres://", "postgresql+asyncpg://", 1)
     if url.startswith("postgresql+asyncpg://"):
-        return url   # already correct
+        return url
     return url
 
 SYNC_DATABASE_URL  = _make_sync_url(DATABASE_URL)
@@ -61,17 +69,16 @@ SessionLocal = sessionmaker(
 if _is_sqlite:
     async_engine = create_async_engine(
         ASYNC_DATABASE_URL,
-        echo = False,
+        echo=False,
     )
 else:
     async_engine = create_async_engine(
         ASYNC_DATABASE_URL,
-        pool_pre_ping = True,
-        pool_size     = 5,
-        max_overflow  = 10,
-        echo          = False,
-        # Neon requires SSL
-        connect_args  = {"ssl": "require"} if "neon" in ASYNC_DATABASE_URL else {},
+        pool_pre_ping=True,
+        pool_size=5,
+        max_overflow=10,
+        echo=False,
+        connect_args={"ssl": "require"},
     )
 
 AsyncSessionLocal = async_sessionmaker(
@@ -99,11 +106,6 @@ def get_sync_db() -> Session:
 
 
 async def init_db():
-    """
-    Verify database connection at startup.
-    Alembic migrations run BEFORE this in startCommand/render.yaml.
-    Running Alembic here caused startup timeouts with Neon cold starts.
-    """
     if _is_sqlite:
         Base.metadata.create_all(bind=sync_engine)
         print(f"  DB ready (SQLite): {DATABASE_URL}")
