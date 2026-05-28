@@ -4,7 +4,7 @@ services:
     runtime: python
     rootDir: .
     buildCommand: pip install -r backend/requirements.txt
-    startCommand: cd backend && alembic upgrade head && cd .. && uvicorn backend.main:app --host 0.0.0.0 --port $PORT --workers 1
+    startCommand: uvicorn backend.main:app --host 0.0.0.0 --port $PORT --workers 1
     envVars:
       - key: DATABASE_URL
         sync: false          
