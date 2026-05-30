@@ -102,6 +102,15 @@ class EvalResult(Base):
     latency_ms      = Column(Float, default=0.0)
     cost_usd        = Column(Float, default=0.0)
     error           = Column(Text, default="")
+    confidence       = Column(String,  default="medium")
+    is_ambiguous     = Column(Boolean, default=False)
+    ci_lower         = Column(Float,   default=0.0)
+    ci_upper         = Column(Float,   default=0.0)
+    reference_match  = Column(Float,   nullable=True)
+    factual_contradiction = Column(Boolean, default=False)
+    improvement      = Column(Text,    default="")
+    task_type        = Column(String,  default="general")
+    task_metrics_json = Column(JSON,   default=dict)
 
 class Alert(Base):
     __tablename__ = "alerts"

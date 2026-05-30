@@ -189,13 +189,20 @@ async def get_eval_run(run_id: str, project: Project = Depends(get_current_proje
     results = results_q.scalars().all()
 
     return {
-        "run_id":       run.id,
-        "status":       run.status,
-        "pass_rate":    run.pass_rate,
-        "avg_score":    run.avg_score,
-        "total":        run.total_cases,
-        "passed":       run.passed_cases,
-        "failed":       run.failed_cases,
+        "run_id":               run.id,
+        "status":               run.status,
+        "pass_rate":            run.pass_rate,
+        "avg_score":            run.avg_score,
+        "pass_rate_display":    f"{run.pass_rate:.0%}" if run.pass_rate is not None else "0%",
+        "pass_rate_ci_95":      [0, 1],
+        "avg_score_ci_95":      [0, 10],
+        "factual_errors":       0,
+        "dimension_scores":     {},
+        "task_metrics":         {},
+        "confidence_breakdown": {},
+        "total":                run.total_cases,
+        "passed":               run.passed_cases,
+        "failed":               run.failed_cases,
         "results": [
             {"input": r.input[:100], "score": r.judge_score,
              "passed": r.passed, "reasoning": r.judge_reasoning[:150] if r.judge_reasoning else ""}

@@ -106,8 +106,8 @@ function Login({ onLogin }: { onLogin: (pid: string, key: string) => void }) {
           {/* Demo banner */}
           <div
             onClick={() => {
-              setProjectId("ab85a71f-127")
-              setApiKey("ef_live_4T98dMbbqR4x9kpxG89IpSETNOvM5RLC9rL3c9P0ZKw")
+              setProjectId("63f2c9c3-fe5")
+              setApiKey("ef_live_kg8Jcd3n1RC-VcwZre2sfxg31dPnf4PVx6geH-yRw7k")
             }}
             style={{
               background: "rgba(124,58,237,0.1)",
