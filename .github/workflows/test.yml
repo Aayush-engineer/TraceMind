@@ -23,8 +23,18 @@ jobs:
           pip install -r requirements.txt
           pip install pytest pytest-asyncio httpx
 
-      - name: Run tests
+      - name: Run unit tests
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
-          python -m pytest backend/tests/ -v --tb=short
+          python -m pytest backend/tests/ -v --tb=short --ignore=backend/tests/test_complete_backend.py
+
+      - name: Run integration test
+        env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          uvicorn backend.main:app --port 8000 &
+          sleep 8
+          python backend/tests/test_complete_backend.py http://localhost:8000
