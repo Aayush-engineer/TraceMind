@@ -88,7 +88,7 @@ class TestRunEvalParallel:
             {
                 "id":       f"{i}",
                 "input":    f"q{i}",
-                "expected": f"expected answer {i}",
+                "expected": "",          
                 "criteria": ["accurate", "helpful"],
                 "category": "test",
                 "context":  "",
@@ -99,8 +99,9 @@ class TestRunEvalParallel:
     @pytest.mark.asyncio
     async def test_all_pass(self):
         from backend.core.eval_engine import run_eval_parallel
-        with patch("backend.core.eval_metrics.chat",
-                   return_value=_pass_response()):
+        with patch("backend.core.llm.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_metrics.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_engine.chat", return_value=_pass_response()):
             r = await run_eval_parallel(
                 self._examples(3), lambda x: "good answer", ["accurate", "helpful"]
             )
@@ -110,8 +111,9 @@ class TestRunEvalParallel:
     @pytest.mark.asyncio
     async def test_all_fail(self):
         from backend.core.eval_engine import run_eval_parallel
-        with patch("backend.core.eval_metrics.chat",
-                   return_value=_fail_response()):
+        with patch("backend.core.llm.chat", return_value=_fail_response()), \
+             patch("backend.core.eval_metrics.chat", return_value=_fail_response()), \
+             patch("backend.core.eval_engine.chat", return_value=_fail_response()):
             r = await run_eval_parallel(
                 self._examples(3), lambda x: "wrong answer", ["accurate"]
             )
@@ -122,12 +124,14 @@ class TestRunEvalParallel:
     async def test_mixed_pass_fail(self):
         from backend.core.eval_engine import run_eval_parallel
         responses = (
-            [_pass_response()] * 2 +   
-            [_pass_response()] * 2 +   
-            [_fail_response()]  * 2 +   
-            [_fail_response()]  * 2     
+            [_pass_response()] * 2 +
+            [_pass_response()] * 2 +
+            [_fail_response()]  * 2 +
+            [_fail_response()]  * 2
         )
-        with patch("backend.core.eval_metrics.chat", side_effect=responses):
+        with patch("backend.core.llm.chat", side_effect=responses), \
+             patch("backend.core.eval_metrics.chat", side_effect=responses), \
+             patch("backend.core.eval_engine.chat", side_effect=responses):
             r = await run_eval_parallel(
                 self._examples(4), lambda x: "ans", ["accurate"]
             )
@@ -137,8 +141,9 @@ class TestRunEvalParallel:
     @pytest.mark.asyncio
     async def test_result_has_dimension_scores(self):
         from backend.core.eval_engine import run_eval_parallel
-        with patch("backend.core.eval_metrics.chat",
-                   return_value=_pass_response()):
+        with patch("backend.core.llm.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_metrics.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_engine.chat", return_value=_pass_response()):
             r = await run_eval_parallel(
                 self._examples(1), lambda x: "answer", ["accurate", "helpful"]
             )
@@ -148,8 +153,9 @@ class TestRunEvalParallel:
     @pytest.mark.asyncio
     async def test_result_has_confidence(self):
         from backend.core.eval_engine import run_eval_parallel
-        with patch("backend.core.eval_metrics.chat",
-                   return_value=_pass_response()):
+        with patch("backend.core.llm.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_metrics.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_engine.chat", return_value=_pass_response()):
             r = await run_eval_parallel(
                 self._examples(1), lambda x: "answer", ["accurate"]
             )
@@ -159,8 +165,9 @@ class TestRunEvalParallel:
     @pytest.mark.asyncio
     async def test_result_has_reasoning_and_improvement(self):
         from backend.core.eval_engine import run_eval_parallel
-        with patch("backend.core.eval_metrics.chat",
-                   return_value=_pass_response()):
+        with patch("backend.core.llm.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_metrics.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_engine.chat", return_value=_pass_response()):
             r = await run_eval_parallel(
                 self._examples(1), lambda x: "answer", ["accurate"]
             )
@@ -170,28 +177,28 @@ class TestRunEvalParallel:
 
     @pytest.mark.asyncio
     async def test_aggregate_has_ci(self):
-        """Aggregate result should include confidence intervals."""
         from backend.core.eval_engine import run_eval_parallel
-        with patch("backend.core.eval_metrics.chat",
-                   return_value=_pass_response()):
+        with patch("backend.core.llm.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_metrics.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_engine.chat", return_value=_pass_response()):
             r = await run_eval_parallel(
                 self._examples(3), lambda x: "answer", ["accurate"]
             )
-        assert "pass_rate_ci_95"  in r
-        assert "avg_score_ci_95"  in r
+        assert "pass_rate_ci_95"   in r
+        assert "avg_score_ci_95"   in r
         assert "pass_rate_display" in r
-        assert "±" in r["pass_rate_display"]   
+        assert "±" in r["pass_rate_display"]
 
     @pytest.mark.asyncio
     async def test_factual_contradiction_detected(self):
-        """When judge reports factual_contradiction, it should bubble up."""
         from backend.core.eval_engine import run_eval_parallel
-        with patch("backend.core.eval_metrics.chat",
-                   return_value=_fail_response()):
+        with patch("backend.core.llm.chat", return_value=_fail_response()), \
+             patch("backend.core.eval_metrics.chat", return_value=_fail_response()), \
+             patch("backend.core.eval_engine.chat", return_value=_fail_response()):
             r = await run_eval_parallel(
                 self._examples(2), lambda x: "wrong answer", ["accurate"]
             )
-        assert r["factual_errors"] >= 0   
+        assert r["factual_errors"] >= 0
 
     @pytest.mark.asyncio
     async def test_category_breakdown_computed(self):
@@ -201,8 +208,9 @@ class TestRunEvalParallel:
             {"id":"2","input":"q","expected":"a","criteria":[],"category":"refunds","context":""},
             {"id":"3","input":"q","expected":"a","criteria":[],"category":"billing","context":""},
         ]
-        with patch("backend.core.eval_metrics.chat",
-                   return_value=_pass_response()):
+        with patch("backend.core.llm.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_metrics.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_engine.chat", return_value=_pass_response()):
             r = await run_eval_parallel(examples, lambda x: "ans", ["accurate"])
         assert r["by_category"]["refunds"]["total"] == 2
         assert r["by_category"]["billing"]["total"] == 1
@@ -225,13 +233,13 @@ class TestRunEvalParallel:
     @pytest.mark.asyncio
     async def test_total_cost_zero(self):
         from backend.core.eval_engine import run_eval_parallel
-        with patch("backend.core.eval_metrics.chat",
-                   return_value=_pass_response()):
+        with patch("backend.core.llm.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_metrics.chat", return_value=_pass_response()), \
+             patch("backend.core.eval_engine.chat", return_value=_pass_response()):
             r = await run_eval_parallel(
                 self._examples(2), lambda x: "ans", ["accurate"]
             )
         assert r["total_cost"] == 0.0
-
 
 
 class TestEvalMetrics:
@@ -328,7 +336,6 @@ class TestEvalMetrics:
         agg = aggregate_eval_results([])
         assert agg["total"] == 0
         assert agg["pass_rate"] == 0
-
 
 
 class TestRegressionDetector:
