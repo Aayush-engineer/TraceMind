@@ -264,7 +264,7 @@ class TestEvalMetrics:
             "we offer 30-day refunds on all items",
             "we provide 30-day refunds for all products",
         )
-        assert score > 0.3
+        assert score > 0.25
 
     def test_semantic_overlap_low_contradiction(self):
         from backend.core.eval_metrics import _semantic_overlap

@@ -7,6 +7,7 @@ import time
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Callable
+from .llm import chat
 
 
 class EvalTask(str, Enum):
