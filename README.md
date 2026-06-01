@@ -53,7 +53,7 @@ You find out in 2 weeks        You fix it today
 ```python
 from tracemind import TraceMind
 
-tm = TraceMind(api_key="tm_live_...", project="my-agent")
+tm = TraceMind(api_key="ef_live_...", project="my-agent")
 
 @tm.trace("support_handler")          # ← this one line
 def handle_ticket(ticket: str) -> str:
@@ -134,7 +134,7 @@ curl -X POST https://tracemind.onrender.com/api/projects \
   -d '{"name": "my-agent", "description": "My first project"}'
 
 # Response includes api_key — save it, shown only once
-# {"id": "abc123", "api_key": "tm_live_..."}
+# {"id": "abc123", "api_key": "ef_live_..."}
 ```
 
 ---
@@ -151,7 +151,7 @@ pip install tracemind-sdk
 from tracemind import TraceMind
 
 tm = TraceMind(
-    api_key  = "tm_live_...",
+    api_key  = "ef_live_...",
     project  = "my-agent",
     base_url = "https://tracemind.onrender.com"
 )
@@ -190,7 +190,7 @@ npm install tracemind-sdk
 import TraceMind from 'tracemind-sdk'
 
 const tm = new TraceMind({
-  apiKey:  'tm_live_...',
+  apiKey:  'ef_live_...',
   project: 'my-agent',
   baseUrl: 'https://tracemind.onrender.com'
 })
@@ -362,7 +362,7 @@ print(f"Passed — {result.pass_rate:.0%} pass rate")
 
 ## API Reference
 
-All endpoints require `Authorization: Bearer tm_live_<key>` header.
+All endpoints require `Authorization: Bearer ef_live_<key>` header.
 
 ### Traces
 ```
