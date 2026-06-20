@@ -269,6 +269,9 @@ class TraceMind:
         self.project  = project
         self.base_url = base_url.rstrip("/")
         self._debug   = debug
+        self._dev_mode:    bool  = False
+        self._threshold:   float = 7.0
+        self._alert_times: dict  = {}
 
         if debug:
             logging.basicConfig(level=logging.DEBUG)
@@ -306,7 +309,139 @@ class TraceMind:
         self._mask_outputs = mask_outputs
         self._redactor    = PIIRedactor(custom_redact_patterns) if redact_pii else None
         logger.debug(f"TraceMind initialized — project={project}, url={base_url}")
+ 
+    def _get_dev_insight(
+        self,
+        input_text:  str,
+        output_text: str,
+        score:       float,
+    ) -> tuple[str, str]:
+        """
+        Get one-sentence issue and fix from the backend quick-insight endpoint.
+        Returns ("issue sentence", "fix sentence").
+        Falls back to generic messages if server unreachable or response malformed.
+        Never raises under any circumstance.
+        """
+        try:
+            resp = self._http.post(
+                "/api/agent/quick-insight",
+                json = {
+                    "input":  input_text[:300],
+                    "output": output_text[:300],
+                    "score":  score,
+                },
+                timeout = 3.0,
+            )
+            if resp.status_code == 200:
+                data  = resp.json()
+                issue = str(data.get("issue", "")).strip()
+                fix   = str(data.get("fix",   "")).strip()
+                if issue and fix:
+                    return issue[:80], fix[:80]
+        except Exception:
+            pass
 
+        return (
+            "Response quality below threshold.",
+            "Review system prompt and context.",
+        )
+
+    def _print_dev_alert(self, span: dict, score: float) -> None:
+        """
+        Print a formatted quality alert box to stderr.
+        Called in a daemon thread — must NEVER raise.
+        Rate-limited: max 1 alert per span name per 10 seconds.
+        Uses box-drawing characters for clear visual separation.
+        """
+        import sys
+        import os
+        import re
+        import time
+
+        # ── Rate limit: 1 alert per span name per 10 seconds ─────────
+        name = str(span.get("name") or "unknown")[:30]
+        now  = time.time()
+        if now - self._alert_times.get(name, 0) < 10:
+            return
+        self._alert_times[name] = now
+
+        try:
+            # ── Detect color support ──────────────────────────────────
+            try:
+                use_color = (
+                    hasattr(sys.stderr, "fileno")
+                    and os.isatty(sys.stderr.fileno())
+                )
+            except Exception:
+                use_color = False
+
+            RED    = "\033[31m" if use_color else ""
+            YELLOW = "\033[33m" if use_color else ""
+            CYAN   = "\033[36m" if use_color else ""
+            RESET  = "\033[0m"  if use_color else ""
+
+            # ── Span metadata ─────────────────────────────────────────
+            span_id  = str(span.get("span_id") or "")[:12]
+            duration = f"{float(span.get('duration_ms') or 0):.0f}ms"
+
+            inp = str(span.get("input")  or "")
+            out = str(span.get("output") or "")
+            inp_display = (inp[:57] + "...") if len(inp) > 60 else inp
+            out_display = (out[:57] + "...") if len(out) > 60 else out
+
+            # ── Get insight (fast, non-blocking already in thread) ────
+            issue, fix = self._get_dev_insight(inp, out, score)
+
+            # ── Build box ─────────────────────────────────────────────
+            W = 60   # inner width between │ and │
+
+            def _strip_ansi(text: str) -> str:
+                return re.sub(r'\033\[[0-9;]*m', '', text)
+
+            def _box_line(text: str = "") -> str:
+                """Pad text to fill box width, accounting for ANSI codes."""
+                visible_len = len(_strip_ansi(text))
+                padding     = W - visible_len - 2
+                return f"│ {text}{' ' * max(0, padding)} │"
+
+            # Header line with colors — calculate padding from raw text
+            score_raw    = f"LOW QUALITY [{score:.1f}/10]  {name}  {duration}"
+            score_color  = f"{RED}LOW QUALITY{RESET} [{YELLOW}{score:.1f}/10{RESET}]"
+            header_text  = f"{score_color}  {name}  {duration}"
+            header_pad   = W - len(score_raw) - 2
+            header_line  = f"│ {header_text}{' ' * max(0, header_pad)} │"
+
+            inspect_text = f"{CYAN}→ tracemind inspect {span_id}{RESET}"
+            inspect_raw  = f"→ tracemind inspect {span_id}"
+            inspect_pad  = W - len(inspect_raw) - 2
+            inspect_line = f"│ {inspect_text}{' ' * max(0, inspect_pad)} │"
+
+            top    = f"┌─ TraceMind {'─' * (W - 12)}┐"
+            bottom = f"└{'─' * (W + 2)}┘"
+
+            lines = [
+                "",
+                top,
+                header_line,
+                _box_line(),
+                _box_line(f"Input:  {inp_display}"),
+                _box_line(f"Output: {out_display}"),
+                _box_line(),
+                _box_line(f"Issue:  {issue}"),
+                _box_line(f"Fix:    {fix}"),
+                _box_line(),
+                inspect_line,
+                bottom,
+                "",
+            ]
+
+            # ── Write atomically to stderr ────────────────────────────
+            output = "\n".join(lines) + "\n"
+            sys.stderr.write(output)
+            sys.stderr.flush()
+
+        except Exception:
+            pass   # terminal alert must never crash the application
     # ── Decorator API ─────────────────────────────────────────────────────
 
     def trace(self, name: str = None, tags: list[str] = None):
@@ -599,6 +734,18 @@ class TraceMind:
             self._buffer.append(span)
             if len(self._buffer) >= self._batch_size:
                 self._flush_unsafe()
+
+        if getattr(self, "_dev_mode", False):
+            _scores = span.get("scores", {})
+            _score  = _scores.get("overall") if _scores else None
+            if _score is not None and _score < getattr(self, "_threshold", 7.0):
+                import threading
+                threading.Thread(
+                    target = self._print_dev_alert,
+                    args   = (span, _score),
+                    daemon = True,
+                    name   = f"tm-alert-{str(span.get('name', ''))[:10]}",
+                ).start()
 
     def _flush_unsafe(self):
         if not self._buffer:
