@@ -3,29 +3,28 @@ import json
 import logging
 import time
 from dataclasses import dataclass, field
-from typing import Optional
 from enum import Enum
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
 
 class HallucinationType(str, Enum):
-    FACTUAL      = "factual"        # contradicts provided context
-    FABRICATION  = "fabrication"    # no grounding, stated as fact
-    CONTRADICTION = "contradiction" # self-contradictory
-    OVERCONFIDENT = "overconfident" # uncertain info stated as certain
-    NONE         = "none"
+    FACTUAL       = "factual"
+    FABRICATION   = "fabrication"
+    CONTRADICTION = "contradiction"
+    OVERCONFIDENT = "overconfident"
+    NONE          = "none"
 
 
 @dataclass
 class Claim:
-    """A single verifiable claim extracted from the response."""
-    text:             str
+    text:               str
     hallucination_type: HallucinationType
-    confidence:       float          # 0-1: how confident is model in this claim
-    grounded:         bool           # is this claim supported by context?
-    evidence:         str            # supporting or contradicting evidence
-    risk_level:       str            # "low" | "medium" | "high" | "critical"
+    confidence:         float
+    grounded:           bool
+    evidence:           str
+    risk_level:         str
 
 
 @dataclass
@@ -34,24 +33,18 @@ class HallucinationReport:
     response:            str
     context:             Optional[str]
     claims:              list[Claim]  = field(default_factory=list)
-    overall_risk:        str          = "low"    # low/medium/high/critical
-    hallucination_score: float        = 0.0      # 0-10, higher = more hallucinated
+    overall_risk:        str          = "low"
+    hallucination_score: float        = 0.0
     analysis_time_ms:    float        = 0.0
     model_used:          str          = ""
 
     @property
     def has_hallucinations(self) -> bool:
-        return any(
-            c.hallucination_type != HallucinationType.NONE
-            for c in self.claims
-        )
+        return any(c.hallucination_type != HallucinationType.NONE for c in self.claims)
 
     @property
     def hallucinated_claims(self) -> list[Claim]:
-        return [
-            c for c in self.claims
-            if c.hallucination_type != HallucinationType.NONE
-        ]
+        return [c for c in self.claims if c.hallucination_type != HallucinationType.NONE]
 
     @property
     def factual_claims(self) -> list[Claim]:
@@ -79,11 +72,11 @@ class HallucinationReport:
             "hallucinated_count":  len(self.hallucinated_claims),
             "claims": [
                 {
-                    "text":               c.text,
-                    "type":               c.hallucination_type.value,
-                    "grounded":           c.grounded,
-                    "risk_level":         c.risk_level,
-                    "evidence":           c.evidence,
+                    "text":       c.text,
+                    "type":       c.hallucination_type.value,
+                    "grounded":   c.grounded,
+                    "risk_level": c.risk_level,
+                    "evidence":   c.evidence,
                 }
                 for c in self.claims
             ],
@@ -92,7 +85,6 @@ class HallucinationReport:
 
 
 class HallucinationDetector:
-    # Risk thresholds
     RISK_THRESHOLDS = {
         "low":      0.0,
         "medium":   3.0,
@@ -100,16 +92,16 @@ class HallucinationDetector:
         "critical": 8.5,
     }
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._cache: dict[str, HallucinationReport] = {}
 
     async def analyze(
         self,
-        question:    str,
-        response:    str,
-        context:     Optional[str] = None,
-        domain:      str = "general",
-        fast_mode:   bool = False,
+        question:  str,
+        response:  str,
+        context:   Optional[str] = None,
+        domain:    str           = "general",
+        fast_mode: bool          = False,
     ) -> HallucinationReport:
         from .llm import chat
 
@@ -117,16 +109,12 @@ class HallucinationDetector:
         loop  = asyncio.get_running_loop()
         model = "smart" if len(response) < 200 else ("fast" if fast_mode else "smart")
 
-        # Stage 1: Extract claims
         claims_raw = await loop.run_in_executor(
             None,
-            lambda: self._extract_claims(question, response, context, model, chat)
+            lambda: self._extract_claims(question, response, context, model, chat),
         )
 
-        # Stage 2: Analyze each claim
         analyzed_claims = self._analyze_claims(claims_raw, context)
-
-        # Stage 3: Compute overall risk
         score = self._compute_risk_score(analyzed_claims)
         risk  = self._score_to_risk(score)
 
@@ -142,8 +130,8 @@ class HallucinationDetector:
         )
 
         logger.debug(
-            f"Hallucination analysis: {len(analyzed_claims)} claims, "
-            f"risk={risk}, score={score:.1f}"
+            "Hallucination analysis: %d claims, risk=%s, score=%.1f",
+            len(analyzed_claims), risk, score,
         )
         return report
 
@@ -153,118 +141,102 @@ class HallucinationDetector:
         response: str,
         context:  Optional[str],
         model:    str,
-        chat_fn
+        chat_fn,
     ) -> list[dict]:
-
         context_section = (
             f"\nGround truth context provided:\n{context[:600]}"
             if context else
             "\nNo ground truth context provided. Check for self-consistency only."
         )
 
-        prompt = f"""You are a precise fact-checker. Extract EVERY verifiable claim from the AI response below.
+        prompt = f"""You are a precise fact-checker. Extract EVERY verifiable claim from the AI response.
 
-IMPORTANT: Even a single sentence contains claims. Extract ALL of them — numbers, policies, facts, names, timeframes, quantities, promises. Do not skip any.
+IMPORTANT: Even a single sentence contains claims. Extract ALL of them.
 
 Question asked: {question[:300]}
-
-AI Response to analyze: "{response[:600]}"
-
+AI Response: "{response[:600]}"
 {context_section}
 
-EXTRACTION RULES:
-1. Extract EVERY specific fact, number, date, policy, or promise — even from one-sentence responses
-2. "We offer 30-day refunds" → extract claim: "30-day refunds"
-3. "We ship internationally" → extract claim: "ships internationally"  
-4. If the response says nothing verifiable, return [{{"claim":"no specific claims made","type":"none","grounded":true,"confidence":0.1,"evidence":"response contains no verifiable facts","risk":"low"}}]
-
-For EACH claim classify:
-- type: "factual" (contradicts context), "fabrication" (no grounding), "contradiction" (self-contradicts), "overconfident" (uncertain stated as fact), "none" (accurate)
-- grounded: true if supported by context or generally true, false if contradicted
-- confidence: 0.0-1.0 how certain the AI sounds
-- evidence: what supports or contradicts this claim
-- risk: "low", "medium", "high", or "critical"
-
-Return ONLY a valid JSON array, no markdown, no explanation:
-[
-  {{
-    "claim": "exact text of the claim from the response",
-    "type": "none|factual|fabrication|contradiction|overconfident",
-    "grounded": true,
-    "confidence": 0.9,
-    "evidence": "explanation of why this is or isn't grounded",
-    "risk": "low"
-  }}
-]"""
-
+Return a JSON object with a "claims" array:
+{{
+  "claims": [
+    {{
+      "claim": "exact text of the claim",
+      "type": "none|factual|fabrication|contradiction|overconfident",
+      "grounded": true,
+      "confidence": 0.9,
+      "evidence": "why this is or isn't grounded",
+      "risk": "low|medium|high|critical"
+    }}
+  ]
+}}"""
 
         raw = chat_fn(
             messages   = [{"role": "user", "content": prompt}],
-            system     = "You are a precise fact-checker. Extract and verify claims. Return ONLY valid JSON.",
+            system     = "You are a precise fact-checker. Return ONLY valid JSON.",
             model      = model,
             max_tokens = 1500,
-            json_mode  = False,
+            json_mode  = False,  
         )
 
         try:
             cleaned = raw.replace("```json", "").replace("```", "").strip()
-            return json.loads(cleaned)
+            parsed  = json.loads(cleaned)
 
-            if isinstance(parsed, list):
+            if isinstance(parsed, dict) and "claims" in parsed:
+                claims_list = parsed["claims"]
+            elif isinstance(parsed, list):
                 claims_list = parsed
-            elif isinstance(parsed, dict):
-                if "claims" in parsed:
-                    claims_list = parsed["claims"]
-                elif "claim" in parsed:
-                    # Single claim object returned instead of array
-                    claims_list = [parsed]
-                else:
-                    # Dict with unknown keys — try values
-                    claims_list = list(parsed.values()) if parsed else []
+            elif isinstance(parsed, dict) and "claim" in parsed:
+                claims_list = [parsed]
             else:
+                logger.warning(
+                    "Claim extraction returned unexpected structure: %s",
+                    type(parsed).__name__,
+                )
                 claims_list = []
 
-            valid = [c for c in claims_list if isinstance(c, dict) and c.get("claim")]
+            valid = [
+                c for c in claims_list
+                if isinstance(c, dict) and c.get("claim")
+            ]
 
             if not valid:
                 logger.warning(
-                    f"Claim extraction returned 0 valid claims from response: "
-                    f"'{response[:100]}'. Using fallback single-claim."
+                    "Claim extraction returned 0 valid claims. "
+                    "Response: '%.100s'. Using fallback.",
+                    response,
                 )
-                valid = [{
-                    "claim":      response[:200],
-                    "type":       "none",
-                    "grounded":   True,
-                    "confidence": 0.5,
-                    "evidence":   "Extraction failed — full response treated as single claim for review",
-                    "risk":       "low",
-                }]
+                return self._fallback_claim(response)
 
             return valid
 
-        except json.JSONDecodeError as e:
-            logger.warning(f"Claim extraction JSON parse failed: {e} | raw: {raw[:300]}")
-            # Fallback: treat full response as one unverified claim
-            return [{
-                "claim":      response[:200],
-                "type":       "fabrication",
-                "grounded":   False,
-                "confidence": 0.5,
-                "evidence":   f"JSON parse failed — manual review required",
-                "risk":       "medium",
-            }]
+        except json.JSONDecodeError as exc:
+            logger.warning(
+                "Claim extraction JSON parse failed: %s | raw: %.200s", exc, raw
+            )
+            return self._fallback_claim(response, risk="medium")
+
+    @staticmethod
+    def _fallback_claim(response: str, risk: str = "low") -> list[dict]:
+        return [{
+            "claim":      response[:200],
+            "type":       "none",
+            "grounded":   True,
+            "confidence": 0.5,
+            "evidence":   "Extraction failed — full response treated as single claim",
+            "risk":       risk,
+        }]
 
     def _analyze_claims(
         self,
         claims_raw: list[dict],
-        context: Optional[str]
+        context:    Optional[str],
     ) -> list[Claim]:
-        """Convert raw claim dicts to Claim objects with validation."""
         claims = []
         for c in claims_raw:
             if not isinstance(c, dict) or not c.get("claim"):
                 continue
-
             try:
                 h_type = HallucinationType(c.get("type", "none"))
             except ValueError:
@@ -278,14 +250,11 @@ Return ONLY a valid JSON array, no markdown, no explanation:
                 evidence           = str(c.get("evidence", ""))[:300],
                 risk_level         = c.get("risk", "low"),
             ))
-
         return claims
 
     def _compute_risk_score(self, claims: list[Claim]) -> float:
-        """Compute 0-10 hallucination risk score from claims."""
         if not claims:
             return 0.0
-
         risk_weights = {"low": 1.0, "medium": 3.0, "high": 6.0, "critical": 10.0}
         type_weights = {
             HallucinationType.NONE:          0.0,
@@ -294,104 +263,26 @@ Return ONLY a valid JSON array, no markdown, no explanation:
             HallucinationType.FABRICATION:   6.0,
             HallucinationType.FACTUAL:       8.0,
         }
-
         if not any(c.hallucination_type != HallucinationType.NONE for c in claims):
             return 0.0
-
-        scores = []
-        for claim in claims:
-            if claim.hallucination_type == HallucinationType.NONE:
-                continue
-            base   = type_weights.get(claim.hallucination_type, 2.0)
-            risk   = risk_weights.get(claim.risk_level, 1.0)
-            scores.append(min(10.0, base * (risk / 6.0) * claim.confidence))
-
+        scores = [
+            min(10.0, type_weights.get(c.hallucination_type, 2.0)
+                * (risk_weights.get(c.risk_level, 1.0) / 6.0)
+                * c.confidence)
+            for c in claims
+            if c.hallucination_type != HallucinationType.NONE
+        ]
         return round(sum(scores) / len(claims), 2) if scores else 0.0
 
     def _score_to_risk(self, score: float) -> str:
-        if score >= self.RISK_THRESHOLDS["critical"]:
-            return "critical"
-        if score >= self.RISK_THRESHOLDS["high"]:
-            return "high"
-        if score >= self.RISK_THRESHOLDS["medium"]:
-            return "medium"
+        if score >= self.RISK_THRESHOLDS["critical"]: return "critical"
+        if score >= self.RISK_THRESHOLDS["high"]:     return "high"
+        if score >= self.RISK_THRESHOLDS["medium"]:   return "medium"
         return "low"
-
-    async def consistency_check(
-        self,
-        question:   str,
-        response_fn: callable,   
-        n_variants:  int = 3,
-    ) -> dict:
-        from .llm import chat
-        loop = asyncio.get_running_loop()
-
-        variants_raw = await loop.run_in_executor(None, lambda: chat(
-            messages=[{"role": "user", "content":
-                f"Write {n_variants} different ways to ask this question "
-                f"that mean exactly the same thing. Return ONLY a JSON array "
-                f"of strings.\n\nQuestion: {question}"}],
-            system="Generate question paraphrases. Return ONLY JSON array.",
-            model="fast",
-            max_tokens=200,
-            json_mode=False,
-        ))
-
-        try:
-            import json
-            cleaned = variants_raw.replace("```json","").replace("```","").strip()
-            variants = json.loads(cleaned)
-            if not isinstance(variants, list):
-                variants = [question]
-        except Exception:
-            variants = [question]
-
-        responses = []
-        for v in [question] + variants[:n_variants-1]:
-            try:
-                r = await loop.run_in_executor(None, response_fn, v)
-                responses.append({"question": v, "response": str(r)[:500]})
-            except Exception as e:
-                responses.append({"question": v, "response": f"ERROR: {e}"})
-
-        if len(responses) < 2:
-            return {"consistent": True, "confidence": 0.5, "variants_tested": 1}
-
-        consistency_prompt = f"""These are responses to semantically identical questions.
-    Are they factually consistent with each other?
-
-    {chr(10).join(f'Q{i+1}: {r["question"]}{chr(10)}A{i+1}: {r["response"]}' 
-                for i, r in enumerate(responses))}
-
-    Return ONLY JSON:
-    {{"consistent": true, "confidence": 0.9, 
-    "inconsistencies": ["specific contradiction found"], 
-    "risk": "low"}}"""
-
-        raw = await loop.run_in_executor(None, lambda: chat(
-            messages=[{"role":"user","content": consistency_prompt}],
-            system="Check if these responses are factually consistent. Return ONLY JSON.",
-            model="smart",
-            max_tokens=300,
-            json_mode=False,
-        ))
-
-        try:
-            result = json.loads(raw.replace("```json","").replace("```","").strip())
-            return {
-                "consistent":       bool(result.get("consistent", True)),
-                "confidence":       float(result.get("confidence", 0.5)),
-                "inconsistencies":  result.get("inconsistencies", []),
-                "risk":             result.get("risk", "low"),
-                "variants_tested":  len(responses),
-                "responses":        responses,
-            }
-        except Exception:
-            return {"consistent": True, "confidence": 0.3, "variants_tested": len(responses)}
 
     async def batch_analyze(
         self,
-        items: list[dict],
+        items:          list[dict],
         max_concurrent: int = 3,
     ) -> list[HallucinationReport]:
         semaphore = asyncio.Semaphore(max_concurrent)
@@ -399,14 +290,13 @@ Return ONLY a valid JSON array, no markdown, no explanation:
         async def analyze_one(item: dict) -> HallucinationReport:
             async with semaphore:
                 return await self.analyze(
-                    question = item.get("question", ""),
-                    response = item.get("response", ""),
-                    context  = item.get("context"),
+                    question  = item.get("question", ""),
+                    response  = item.get("response", ""),
+                    context   = item.get("context"),
                     fast_mode = item.get("fast_mode", True),
                 )
 
-        tasks = [analyze_one(item) for item in items]
-        return await asyncio.gather(*tasks)
+        return await asyncio.gather(*[analyze_one(i) for i in items])
 
 
 detector = HallucinationDetector()
