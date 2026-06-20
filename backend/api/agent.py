@@ -1,5 +1,7 @@
 import logging
 import time
+import asyncio
+import json
 from fastapi          import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic         import BaseModel
 from typing           import Optional
@@ -10,7 +12,7 @@ from sqlalchemy.orm   import declarative_base
 from ..db.database    import get_db, get_sync_db
 from ..db.models      import Base
 from ..core.eval_agent import EvalAgent
-from ..db.models import AgentRun
+from ..db.models import Project, AgentRun
 from ..core.auth import get_current_project
 from ..core.limiter import limiter
 from fastapi import Request
@@ -152,6 +154,78 @@ async def ingest_document(
         raise HTTPException(500, f"Ingestion failed: {str(e)[:200]}")
 
 
+@router.post("/quick-insight")
+async def quick_insight(
+    body:    dict,
+    request: Request,
+    _:       Project = Depends(get_current_project),
+):
+    """
+    Fast single-call diagnosis for dev mode terminal alerts.
+
+    Called by the SDK (_get_dev_insight) when a low-quality span is
+    detected during development. Must respond in under 3 seconds.
+    Always returns a valid JSON response — never raises HTTPException.
+
+    Input:
+        input:  str — what was sent to the LLM (truncated to 200 chars)
+        output: str — what the LLM returned (truncated to 200 chars)
+        score:  float — quality score that triggered the alert
+
+    Output:
+        issue: str — one sentence describing what went wrong
+        fix:   str — one sentence describing how to fix it
+    """
+    from ..core.llm import chat
+
+    FALLBACK = {
+        "issue": "Response quality below threshold.",
+        "fix":   "Review system prompt and add more context.",
+    }
+
+    inp   = str(body.get("input",  "") or "")[:200]
+    out   = str(body.get("output", "") or "")[:200]
+    score = float(body.get("score", 0) or 0)
+
+    prompt = (
+        f"An AI response scored {score:.1f}/10 (below quality threshold).\n\n"
+        f"Input the AI received:\n{inp}\n\n"
+        f"AI output:\n{out}\n\n"
+        f"In one sentence each: what is the specific issue and what is the fix?\n"
+        f'Return ONLY this JSON: {{"issue": "...", "fix": "..."}}'
+    )
+
+    loop = asyncio.get_running_loop()
+    try:
+        raw = await loop.run_in_executor(
+            None,
+            lambda: chat(
+                messages   = [{"role": "user", "content": prompt}],
+                system     = (
+                    "You diagnose LLM response quality issues. "
+                    "Be specific — name the exact problem, not generic advice. "
+                    "Return ONLY valid JSON with 'issue' and 'fix' string keys."
+                ),
+                model      = "fast",
+                max_tokens = 120,
+                json_mode  = True,
+            ),
+        )
+
+        cleaned = raw.replace("```json", "").replace("```", "").strip()
+        data    = json.loads(cleaned)
+        issue   = str(data.get("issue", "")).strip()
+        fix     = str(data.get("fix",   "")).strip()
+
+        if not issue or not fix:
+            return FALLBACK
+
+        return {"issue": issue[:100], "fix": fix[:100]}
+
+    except Exception:
+        # Always return fallback — never let a failed LLM call
+        # prevent the SDK from showing something useful
+        return FALLBACK
 # ── Background task ──────────────────────────────────────────────────────
 
 async def _run_agent_task(run_id: str, project_id: str, query: str):
