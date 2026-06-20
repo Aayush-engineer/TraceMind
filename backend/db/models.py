@@ -1,6 +1,6 @@
 from sqlalchemy import (Column, String, Float, Integer, Boolean,
                          Text, JSON, ForeignKey, DateTime, Index, UniqueConstraint)
-from sqlalchemy.orm import declarative_base
+from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.sql import func
 from datetime import datetime
 import uuid
@@ -18,6 +18,8 @@ class Project(Base):
     api_key     = Column(String, nullable=False, unique=True)
     webhook_url = Column(String, nullable=True)    # ← add this line
     created_at  = Column(DateTime, default=datetime.utcnow)
+    ab_test_runs = relationship("ABTestRun",     back_populates="project", cascade="all, delete-orphan")
+    cost_records = relationship("CostRecord",    back_populates="project", cascade="all, delete-orphan")
 
 class Span(Base):
     __tablename__ = "spans"
@@ -41,6 +43,7 @@ class Span(Base):
     tool_calls_json = Column(JSON, default=list)
 
     __table_args__ = (
+        UniqueConstraint("span_id", name="uq_spans_span_id"),
         Index("idx_spans_project_ts", "project_id", "timestamp"),
         Index("idx_spans_name",       "project_id", "name"),
     )
@@ -184,3 +187,55 @@ class PromptVersion(Base):
     __table_args__ = (
         UniqueConstraint("project_id", "name", "version_num", name="uq_prompt_version"),
     )
+
+class ABTestRun(Base):
+    __tablename__ = "ab_test_runs"
+    id             = Column(String(12), primary_key=True, default=gen_id)
+    project_id     = Column(String(12), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    name           = Column(String(255), nullable=False)
+    status         = Column(String(32),  default="running")
+    dataset_name   = Column(String(255), nullable=False)
+    prompt_a       = Column(Text, nullable=False)
+    prompt_b       = Column(Text, nullable=False)
+    criteria_json  = Column(JSON, default=list)
+    result_json    = Column(JSON, nullable=True)
+    pass_rate_a    = Column(Float, nullable=True)
+    pass_rate_b    = Column(Float, nullable=True)
+    avg_score_a    = Column(Float, nullable=True)
+    avg_score_b    = Column(Float, nullable=True)
+    winner         = Column(String(8), nullable=True)
+    p_value        = Column(Float, nullable=True)
+    effect_size    = Column(Float, nullable=True)
+    created_at     = Column(Float, default=time.time)
+    completed_at   = Column(Float, nullable=True)
+    project        = relationship("Project", back_populates="ab_test_runs")
+
+
+class CostRecord(Base):
+    __tablename__ = "cost_records"
+    id          = Column(String(12), primary_key=True, default=gen_id)
+    project_id  = Column(String(12), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    span_id     = Column(String(12), nullable=True)
+    provider    = Column(String(32), nullable=False)
+    model       = Column(String(64), nullable=False)
+    operation   = Column(String(64), nullable=False)
+    tokens_in   = Column(Integer, default=0)
+    tokens_out  = Column(Integer, default=0)
+    cost_usd    = Column(Float, default=0.0)
+    timestamp   = Column(Float, default=time.time, nullable=False)
+    project     = relationship("Project", back_populates="cost_records")
+
+
+class WebhookDelivery(Base):
+    __tablename__ = "webhook_deliveries"
+    id              = Column(String(12), primary_key=True, default=gen_id)
+    alert_id        = Column(String(12), ForeignKey("alerts.id"), nullable=True)
+    project_id      = Column(String(12), nullable=False)
+    webhook_url     = Column(String(2000), nullable=False)
+    payload_json    = Column(JSON, nullable=False)
+    status          = Column(String(16), default="pending")
+    attempts        = Column(Integer, default=0)
+    last_attempt_at = Column(Float, nullable=True)
+    next_retry_at   = Column(Float, default=time.time)
+    error_detail    = Column(Text, nullable=True)
+    created_at      = Column(Float, default=time.time)
