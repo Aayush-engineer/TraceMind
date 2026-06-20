@@ -12,7 +12,6 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class JudgeSample:
-    """A single judge evaluation sample."""
     score:         float
     passed:        bool
     reasoning:     str
