@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import time
 from datetime import datetime
 
 from ..db.database      import get_sync_db
 from ..db.models        import EvalRun, Span, Alert
 from ..core.regression_detector import RegressionDetector
+import datetime
+from ..worker.retention import run_retention_cleanup_sync
 
 logger   = logging.getLogger(__name__)
 detector = RegressionDetector()
@@ -19,6 +22,7 @@ class EvalWorker:
     def __init__(self):
         self._running  = False
         self._task     = None
+        self._last_retention_run: float = 0.0
 
     async def _broadcast(self, project_id: str, message: dict):
         if self.ws_manager:
@@ -45,6 +49,22 @@ class EvalWorker:
         await self._process_pending_runs()
         await self._score_unscored_spans()
         await self._check_regressions()
+        await self._process_webhook_retries()
+
+        now = time.time()
+        if now - self._last_retention_run > 86400:
+            logger.info("Running nightly retention cleanup...")
+            loop = asyncio.get_running_loop()
+            await loop.run_in_executor(None, run_retention_cleanup_sync, get_sync_db())
+            self._last_retention_run = now
+
+    async def _process_webhook_retries(self):
+        """Process pending webhook deliveries with exponential backoff."""
+        from ..core.webhook_delivery import process_pending_deliveries_sync
+        loop = asyncio.get_running_loop()
+        n = await loop.run_in_executor(None, process_pending_deliveries_sync, get_sync_db())
+        if n:
+            logger.info("Processed %d webhook deliveries", n) 
 
     async def _process_pending_runs(self):
         loop = asyncio.get_running_loop()
