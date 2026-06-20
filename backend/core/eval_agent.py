@@ -8,7 +8,7 @@ import chromadb
 from ..db.database import get_sync_db
 from ..db.models   import (Dataset, DatasetExample, Span,
                             Project, Alert, AgentEpisode)
-from .llm          import chat, embed
+from .llm import chat, embed
 
 logger = logging.getLogger(__name__)
 
@@ -670,100 +670,408 @@ Be specific. Always generate new test cases for any failure pattern found."""
             db.close()
 
     async def run(self, user_query: str, max_iterations: int = 8) -> dict:
-        loop        = asyncio.get_running_loop()
-        steps_taken = []
-        total_tokens = 0
-        context     = ""
+        import os
+ 
+        anthropic_key = os.getenv("ANTHROPIC_API_KEY", "").strip()
+        openai_key    = os.getenv("OPENAI_API_KEY",    "").strip()
+ 
+        try:
+            if anthropic_key:
+                return await self._run_anthropic(user_query, max_iterations)
+            elif openai_key:
+                return await self._run_openai(user_query, max_iterations)
+            else:
+                return await self._run_groq_text(user_query, max_iterations)
+        except Exception as exc:
+            logger.warning(
+                "Agent run %s: primary provider failed (%s), "
+                "falling back to groq text",
+                getattr(self, "run_id", "?"), exc,
+            )
+            return await self._run_groq_text(user_query, max_iterations)
 
+    async def _run_anthropic(
+        self,
+        user_query:     str,
+        max_iterations: int,
+    ) -> dict:
+        import os
+        import anthropic
+ 
+        loop         = asyncio.get_running_loop()
+        client       = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+        messages     = [{"role": "user", "content": user_query}]
+        steps_taken  = []
+        total_tokens = 0
+ 
+        for iteration in range(max_iterations):
+ 
+            response = await loop.run_in_executor(
+                None,
+                lambda: client.messages.create(
+                    model      = "claude-haiku-4-5-20251001",
+                    max_tokens = 1500,
+                    system     = self.SYSTEM_PROMPT,
+                    tools      = EVAL_AGENT_TOOLS,   
+                    messages   = messages,
+                ),
+            )
+ 
+            total_tokens += (
+                response.usage.input_tokens + response.usage.output_tokens
+            )
+ 
+            if response.stop_reason == "end_turn":
+                answer = next(
+                    (b.text for b in response.content if b.type == "text"),
+                    "Analysis complete.",
+                )
+                self._save_episode(user_query, steps_taken, answer, total_tokens)
+                return {
+                    "answer":      answer,
+                    "steps_taken": steps_taken,
+                    "iterations":  iteration + 1,
+                    "tokens_used": total_tokens,
+                    "run_id":      self.run_id,
+                }
+ 
+            if response.stop_reason == "tool_use":
+ 
+                messages.append({
+                    "role":    "assistant",
+                    "content": response.content,
+                })
+ 
+                tool_results = []
+                for block in response.content:
+                    if block.type != "tool_use":
+                        continue
+ 
+                    t0     = time.time()
+                    result = await execute_tool(
+                        block.name,         
+                        block.input,        
+                        self.project_id,
+                    )
+                    elapsed = round((time.time() - t0) * 1000)
+ 
+                    steps_taken.append({
+                        "tool":    block.name,
+                        "input":   block.input,
+                        "latency": elapsed,
+                        "success": "error" not in result,
+                    })
+ 
+                    tool_results.append({
+                        "type":        "tool_result",
+                        "tool_use_id": block.id,
+                        "content":     json.dumps(result)[:2000],
+                    })
+ 
+                messages.append({
+                    "role":    "user",
+                    "content": tool_results,
+                })
+                continue
+ 
+            logger.debug(
+                "Agent %s: unexpected stop_reason=%s at iteration %d",
+                self.run_id, response.stop_reason, iteration,
+            )
+            break
+ 
+        messages.append({
+            "role":    "user",
+            "content": "Based on your investigation so far, provide your final answer.",
+        })
+        try:
+            final_response = await loop.run_in_executor(
+                None,
+                lambda: client.messages.create(
+                    model      = "claude-haiku-4-5-20251001",
+                    max_tokens = 800,
+                    system     = self.SYSTEM_PROMPT,
+                    messages   = messages,
+                ),
+            )
+            answer = next(
+                (b.text for b in final_response.content if b.type == "text"),
+                "Analysis incomplete after maximum iterations.",
+            )
+        except Exception as exc:
+            logger.warning("Agent %s: final answer request failed: %s", self.run_id, exc)
+            answer = "Analysis incomplete after maximum iterations."
+ 
+        self._save_episode(user_query, steps_taken, answer, total_tokens)
+        return {
+            "answer":      answer,
+            "steps_taken": steps_taken,
+            "iterations":  max_iterations,
+            "tokens_used": total_tokens,
+            "run_id":      self.run_id,
+        }
+
+    async def _run_openai(
+        self,
+        user_query:     str,
+        max_iterations: int,
+    ) -> dict:
+        import os
+        from openai import OpenAI
+ 
+        loop         = asyncio.get_running_loop()
+        client       = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+        steps_taken  = []
+        total_tokens = 0
+ 
+        openai_tools = [
+            {
+                "type": "function",
+                "function": {
+                    "name":        tool["name"],
+                    "description": tool["description"],
+                    "parameters":  tool["input_schema"],
+                },
+            }
+            for tool in EVAL_AGENT_TOOLS
+        ]
+ 
+        messages = [
+            {"role": "system", "content": self.SYSTEM_PROMPT},
+            {"role": "user",   "content": user_query},
+        ]
+ 
+        for iteration in range(max_iterations):
+ 
+            response = await loop.run_in_executor(
+                None,
+                lambda: client.chat.completions.create(
+                    model       = "gpt-4o-mini",
+                    messages    = messages,
+                    tools       = openai_tools,
+                    tool_choice = "auto",
+                    max_tokens  = 1500,
+                ),
+            )
+ 
+            msg           = response.choices[0].message
+            total_tokens += (
+                response.usage.prompt_tokens + response.usage.completion_tokens
+            )
+ 
+            messages.append(msg)
+ 
+            if not msg.tool_calls:
+                answer = msg.content or "Analysis complete."
+                self._save_episode(user_query, steps_taken, answer, total_tokens)
+                return {
+                    "answer":      answer,
+                    "steps_taken": steps_taken,
+                    "iterations":  iteration + 1,
+                    "tokens_used": total_tokens,
+                    "run_id":      self.run_id,
+                }
+ 
+            for tool_call in msg.tool_calls:
+                t0 = time.time()
+ 
+                try:
+                    tool_input = json.loads(tool_call.function.arguments)
+                except json.JSONDecodeError as exc:
+                    logger.warning(
+                        "Agent %s: failed to parse tool args for %s: %s",
+                        self.run_id, tool_call.function.name, exc,
+                    )
+                    tool_input = {}
+ 
+                result  = await execute_tool(
+                    tool_call.function.name,
+                    tool_input,
+                    self.project_id,
+                )
+                elapsed = round((time.time() - t0) * 1000)
+ 
+                steps_taken.append({
+                    "tool":    tool_call.function.name,
+                    "input":   tool_input,
+                    "latency": elapsed,
+                    "success": "error" not in result,
+                })
+ 
+                messages.append({
+                    "role":         "tool",
+                    "tool_call_id": tool_call.id,
+                    "content":      json.dumps(result)[:2000],
+                })
+ 
+        answer = "Analysis incomplete after maximum iterations."
+        self._save_episode(user_query, steps_taken, answer, total_tokens)
+        return {
+            "answer":      answer,
+            "steps_taken": steps_taken,
+            "iterations":  max_iterations,
+            "tokens_used": total_tokens,
+            "run_id":      self.run_id,
+        }
+
+    async def _run_groq_text(
+        self,
+        user_query:     str,
+        max_iterations: int,
+    ) -> dict:
+        
+ 
+        loop           = asyncio.get_running_loop()
+        steps_taken    = []
+        total_tokens   = 0
+        context        = ""
+        parse_failures = 0   
+ 
         tool_desc = "\n".join([
             f"- {t['name']}: {t['description'].split(chr(10))[0]}"
             for t in EVAL_AGENT_TOOLS
         ])
-
-        system = f"""{self.SYSTEM_PROMPT}
-
-{self._project_context}
-
-Available tools:
-{tool_desc}
-
-To use a tool write exactly:
-TOOL: tool_name
-INPUT: {{"key": "value"}}
-
-When you have enough information write:
-ANSWER: your detailed answer here"""
-
+ 
+        system = (
+            f"{self.SYSTEM_PROMPT}\n\n"
+            f"{self._project_context}\n\n"
+            f"Available tools:\n{tool_desc}\n\n"
+            "To use a tool write EXACTLY (no markdown, no extra text):\n"
+            "TOOL: tool_name\n"
+            'INPUT: {"key": "value"}\n\n'
+            "When you have enough information write:\n"
+            "ANSWER: your detailed answer here"
+        )
+ 
         messages = [{"role": "user", "content": user_query}]
-
+ 
         for iteration in range(max_iterations):
+ 
             if context:
                 messages[-1]["content"] = (
                     f"{user_query}\n\nContext so far:\n{context}"
                 )
-
-            def _call():
-                return chat(
+ 
+            response = await loop.run_in_executor(
+                None,
+                lambda: chat(
                     messages   = messages,
                     system     = system,
                     model      = "smart",
-                    max_tokens = 1500
-                )
-
-            response     = await loop.run_in_executor(None, _call)
+                    max_tokens = 1500,
+                ),
+            )
             total_tokens += len(response.split()) * 2
-
-            if "TOOL:" in response and "INPUT:" in response:
-                try:
-                    tool_name  = response.split("TOOL:")[1].split("\n")[0].strip()
-                    input_line = response.split("INPUT:")[1].split("\n")[0].strip()
-                    tool_input = json.loads(input_line)
-                except Exception as e:
-                    context += f"\nStep {iteration+1}: Parse error ({e}), retrying...\n"
-                    continue
-
-                t0      = time.time()
-                result  = await execute_tool(tool_name, tool_input, self.project_id)
-                elapsed = round((time.time() - t0) * 1000)
-
-                steps_taken.append({
-                    "tool":    tool_name,
-                    "input":   tool_input,
-                    "latency": elapsed,
-                    "success": "error" not in result
-                })
-
-                context += (
-                    f"\nStep {iteration+1}: Used {tool_name}\n"
-                    f"Result: {json.dumps(result)[:500]}\n"
-                )
-
-                if iteration == 0 and self._past_runs:
-                    context += f"\nRelevant past investigations (for reference only):\n{self._past_runs}\n"
-
-            elif "ANSWER:" in response:
-                final = response.split("ANSWER:")[1].strip()
+ 
+            if "ANSWER:" in response:
+                final = response.split("ANSWER:", 1)[1].strip()
                 self._save_episode(user_query, steps_taken, final, total_tokens)
                 return {
                     "answer":      final,
                     "steps_taken": steps_taken,
                     "iterations":  iteration + 1,
                     "tokens_used": total_tokens,
-                    "run_id":      self.run_id
+                    "run_id":      self.run_id,
                 }
-
+ 
+            if "TOOL:" in response and "INPUT:" in response:
+                tool_name, tool_input = self._parse_tool_call(response)
+ 
+                if tool_name is None:
+                    parse_failures += 1
+                    context += (
+                        f"\nStep {iteration + 1}: Tool call parse failed "
+                        f"(attempt {parse_failures}/3). "
+                        "Use exact format: TOOL: name\\nINPUT: {...}\n"
+                    )
+                    if parse_failures >= 3:
+                        logger.warning(
+                            "Agent %s: 3 consecutive parse failures — stopping early",
+                            self.run_id,
+                        )
+                        break
+                    continue
+ 
+                parse_failures = 0
+ 
+                t0      = time.time()
+                result  = await execute_tool(tool_name, tool_input, self.project_id)
+                elapsed = round((time.time() - t0) * 1000)
+ 
+                steps_taken.append({
+                    "tool":    tool_name,
+                    "input":   tool_input,
+                    "latency": elapsed,
+                    "success": "error" not in result,
+                })
+ 
+                context += (
+                    f"\nStep {iteration + 1}: Used {tool_name}\n"
+                    f"Result: {json.dumps(result)[:500]}\n"
+                )
+ 
+                if iteration == 0 and self._past_runs:
+                    context += (
+                        f"\nRelevant past runs (reference only):\n"
+                        f"{self._past_runs}\n"
+                    )
+ 
             else:
                 context += f"\nThinking: {response[:300]}\n"
-
+ 
         final = f"Analysis incomplete after {max_iterations} steps."
         self._save_episode(user_query, steps_taken, final, total_tokens)
         return {
             "answer":      final,
             "steps_taken": steps_taken,
-            "iterations":  max_iterations,
+            "iterations":  iteration + 1,
             "tokens_used": total_tokens,
-            "run_id":      self.run_id
+            "run_id":      self.run_id,
         }
+
+    def _parse_tool_call(self, response: str) -> tuple[str | None, dict]:
+        try:
+            tool_name = response.split("TOOL:", 1)[1].split("\n", 1)[0].strip()
+            if not tool_name:
+                return None, {}
+ 
+            after_input = response.split("INPUT:", 1)[1].strip()
+ 
+            first_line = after_input.split("\n", 1)[0].strip()
+            if first_line.startswith("{"):
+                try:
+                    return tool_name, json.loads(first_line)
+                except json.JSONDecodeError:
+                    pass
+ 
+            brace_start = after_input.find("{")
+            if brace_start == -1:
+                return None, {}
+ 
+            depth       = 0
+            brace_end   = -1
+            for i, ch in enumerate(after_input[brace_start:], start=brace_start):
+                if ch == "{":
+                    depth += 1
+                elif ch == "}":
+                    depth -= 1
+                    if depth == 0:
+                        brace_end = i + 1
+                        break
+ 
+            if brace_end == -1:
+                return None, {}
+ 
+            json_str   = after_input[brace_start:brace_end]
+            tool_input = json.loads(json_str)
+            return tool_name, tool_input
+ 
+        except Exception as exc:
+            logger.debug(
+                "Tool call parse failed: %s | response[:200]: %.200s",
+                exc, response,
+            )
+            return None, {}
 
     def _save_episode(self, query: str, steps: list,
                       answer: str, tokens_used: int):
