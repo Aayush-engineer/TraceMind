@@ -9,7 +9,7 @@ PID     = None
 PROJ_NAME = None
  
 # Longer timeout for Render cold starts
-client = httpx.Client(base_url=BASE, timeout=90)
+client = httpx.Client(base_url="http://localhost:8000")
  
 passed  = 0
 failed  = 0
