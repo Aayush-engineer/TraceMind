@@ -8,7 +8,9 @@ import logging
 from contextlib         import asynccontextmanager
 from fastapi            import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-
+from backend.core.logging_middleware import configure_logging, RequestLoggingMiddleware
+from backend.api.eval_templates import router as templates_router
+from backend.api.admin import router as admin_router
 from .db.database       import init_db
 from .api               import traces, evals, datasets, projects, alerts, metrics, agent, prompts
 from .worker.eval_worker import EvalWorker
@@ -97,6 +99,9 @@ app = FastAPI(
     lifespan    = lifespan
 )
 
+configure_logging()
+app.add_middleware(RequestLoggingMiddleware)
+
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
 
@@ -127,7 +132,8 @@ app.include_router(agent.router,    prefix="/api/agent",    tags=["agent"])
 app.include_router(prompts.router)
 app.include_router(hallucination.router, prefix="/api/hallucination", tags=["hallucination"])
 app.include_router(ab_testing.router, prefix="/api/ab", tags=["ab-testing"])
-
+app.include_router(templates_router, prefix="/api")
+app.include_router(admin_router,     prefix="/api")
 
 @app.websocket("/ws/{project_id}")
 async def websocket_endpoint(ws: WebSocket, project_id: str):
