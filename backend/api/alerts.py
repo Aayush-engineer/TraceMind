@@ -41,8 +41,11 @@ async def create_alert(req: CreateAlertRequest, db: AsyncSession = Depends(get_d
 async def get_alerts(
     project_id: str,
     resolved:   Optional[bool] = None,
+    project: Project = Depends(get_current_project), 
     db: AsyncSession = Depends(get_db)
 ):
+    if project_id != project.id:
+        raise HTTPException(404, "Project not found")
     query = select(Alert).where(Alert.project_id == project_id)
     if resolved is not None:
         query = query.where(Alert.resolved == resolved)
@@ -67,8 +70,13 @@ async def get_alerts(
 
 
 @router.patch("/{alert_id}/resolve")
-async def resolve_alert(alert_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Alert).where(Alert.id == alert_id))
+async def resolve_alert(alert_id: str, project: Project = Depends(get_current_project), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Alert).where(
+            Alert.id == alert_id,
+            Alert.project_id == project.id,
+        )
+    )
     alert = result.scalar_one_or_none()
     if not alert:
         raise HTTPException(404, "Alert not found")
