@@ -14,8 +14,10 @@ router = APIRouter(dependencies=[Depends(get_current_project)])
 
 
 @router.get("/{project_id}/summary")
-async def get_summary(project_id: str, db: AsyncSession = Depends(get_db)):
-
+async def get_summary(project_id: str, project: Project = Depends(get_current_project), db: AsyncSession = Depends(get_db)):
+    
+    if project_id != project.id:
+        raise HTTPException(404, "Project not found")
     proj = await db.execute(select(Project).where(Project.id == project_id))
     if not proj.scalar_one_or_none():
         raise HTTPException(404, "Project not found")
@@ -70,7 +72,9 @@ async def get_summary(project_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{project_id}")
-async def get_metrics(project_id: str, hours: int = 24, db: AsyncSession = Depends(get_db)):
+async def get_metrics(project_id: str, hours: int = 24, project: Project = Depends(get_current_project), db: AsyncSession = Depends(get_db)):
+    if project_id != project.id:
+        raise HTTPException(404, "Project not found")
     now   = datetime.utcnow()
     since = now - timedelta(hours=hours)
 
@@ -130,8 +134,12 @@ async def get_metrics(project_id: str, hours: int = 24, db: AsyncSession = Depen
 async def get_eval_history(
     project_id: str,
     limit: int = 10,
+    project: Project = Depends(get_current_project),
     db: AsyncSession = Depends(get_db)
 ):
+    if project_id != project.id:
+        raise HTTPException(404, "Project not found")
+
     result = await db.execute(
         select(EvalRun)
         .where(EvalRun.project_id == project_id)
