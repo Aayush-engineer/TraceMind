@@ -49,7 +49,6 @@ async def batch_check(
     req:     BatchCheckRequest,
     _:       Project = Depends(get_current_project),
 ):
-    """Analyze multiple responses in parallel (max 20 per batch)."""
     if len(req.items) > 20:
         raise HTTPException(400, "Maximum 20 items per batch request")
 
@@ -74,11 +73,16 @@ async def batch_check(
 @router.get("/span/{span_id}")
 async def get_span_hallucination(
     span_id: str,
-    _:       Project = Depends(get_current_project),
+    project: Project = Depends(get_current_project),
     db:      AsyncSession = Depends(get_db),
 ):
     from sqlalchemy import select
-    result = await db.execute(select(Span).where(Span.span_id == span_id))
+    result = await db.execute(
+        select(Span).where(
+            Span.span_id == span_id,
+            Span.project_id == project.id,              
+        )
+    )
     span   = result.scalar_one_or_none()
 
     if not span:
