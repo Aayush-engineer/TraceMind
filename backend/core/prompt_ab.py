@@ -103,9 +103,10 @@ class PromptABTester:
         prompt_a:       str,
         prompt_b:       str,
         judge_criteria: list[str],
+        project_id: str,
         name:           Optional[str] = None,
         max_concurrent: int = 3,
-        confidence:     float = 0.95,   # 95% confidence level
+        confidence:     float = 0.95,  
     ) -> ABTestResult:
         from .eval_engine import run_eval_parallel
         from ..db.database import get_sync_db
@@ -113,11 +114,13 @@ class PromptABTester:
 
         test_id = str(uuid.uuid4())[:12]
 
-        # Fetch examples
         def _fetch():
             db = get_sync_db()
             try:
-                ds = db.query(Dataset).filter_by(name=dataset_name).first()
+                ds = db.query(Dataset).filter_by(
+                    name=dataset_name,
+                    project_id=project_id,   # add
+                ).first()
                 if not ds:
                     return None
                 return db.query(DatasetExample).filter_by(dataset_id=ds.id).all()
