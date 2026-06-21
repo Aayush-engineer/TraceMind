@@ -21,14 +21,9 @@ router = APIRouter(dependencies=[Depends(get_current_project)])
 logger = logging.getLogger(__name__)
 
 
-# ── Request / response models ────────────────────────────────────────────
-
 class AnalyzeRequest(BaseModel):
-    project_id: str
     query:      str
 
-
-# ── Routes ───────────────────────────────────────────────────────────────
 
 @router.post("/analyze")
 @limiter.limit("5/minute")
@@ -36,6 +31,7 @@ async def analyze(
     request: Request,
     req: AnalyzeRequest,
     bg:  BackgroundTasks,
+    project: Project = Depends(get_current_project),
     db:  AsyncSession = Depends(get_db)
 ):
     import uuid
@@ -45,16 +41,16 @@ async def analyze(
 
     run = AgentRun(
         id         = run_id,
-        project_id = req.project_id,
+        project_id=project.id,
         query      = req.query,
         status     = "running",
         started_at = time.time()
     )
     db.add(run)
 
-    bg.add_task(_run_agent_task, run_id, req.project_id, req.query)
+    bg.add_task(_run_agent_task, run_id, project.id, req.query)
 
-    logger.info(f"Agent run {run_id} queued for project {req.project_id}")
+    logger.info(f"Agent run {run_id} queued for project {project.id}")
 
     return {
         "run_id":   run_id,
@@ -64,11 +60,14 @@ async def analyze(
 
 
 @router.get("/runs/{run_id}")
-async def get_run(run_id: str, db: AsyncSession = Depends(get_db)):
+async def get_run(run_id: str, project: Project = Depends(get_current_project), db: AsyncSession = Depends(get_db)):
     import json
 
     result = await db.execute(
-        select(AgentRun).where(AgentRun.id == run_id)
+        select(AgentRun).where(
+            AgentRun.id == run_id,
+            AgentRun.project_id == project.id,             
+        )
     )
     run = result.scalar_one_or_none()
 
@@ -112,15 +111,17 @@ async def get_run(run_id: str, db: AsyncSession = Depends(get_db)):
 
 @router.get("/runs")
 async def list_runs(
-    project_id: Optional[str] = None,
     limit:      int = 20,
+    project: Project = Depends(get_current_project),
     db:         AsyncSession = Depends(get_db)
 ):
     from sqlalchemy import select
-    query = select(AgentRun)
-    if project_id:
-        query = query.where(AgentRun.project_id == project_id)
-    query = query.order_by(AgentRun.started_at.desc()).limit(limit)
+    query = (
+        select(AgentRun)
+        .where(AgentRun.project_id == project.id)
+        .order_by(AgentRun.started_at.desc())
+        .limit(limit)
+    )
     result = await db.execute(query)
     runs   = result.scalars().all()
     return {
@@ -139,13 +140,13 @@ async def list_runs(
 
 @router.post("/ingest-document")
 async def ingest_document(
-    project_id: str,
     file_path:  str,
-    doc_type:   str = "runbook"
+    doc_type:   str = "runbook",
+    project: Project = Depends(get_current_project),
 ):
     from ..core.data_pipeline import doc_pipeline
     try:
-        result = await doc_pipeline.ingest(file_path, project_id, doc_type)
+        result = await doc_pipeline.ingest(file_path, project.id, doc_type)
         return result
     except FileNotFoundError:
         raise HTTPException(404, f"File not found: {file_path}")
@@ -160,22 +161,6 @@ async def quick_insight(
     request: Request,
     _:       Project = Depends(get_current_project),
 ):
-    """
-    Fast single-call diagnosis for dev mode terminal alerts.
-
-    Called by the SDK (_get_dev_insight) when a low-quality span is
-    detected during development. Must respond in under 3 seconds.
-    Always returns a valid JSON response — never raises HTTPException.
-
-    Input:
-        input:  str — what was sent to the LLM (truncated to 200 chars)
-        output: str — what the LLM returned (truncated to 200 chars)
-        score:  float — quality score that triggered the alert
-
-    Output:
-        issue: str — one sentence describing what went wrong
-        fix:   str — one sentence describing how to fix it
-    """
     from ..core.llm import chat
 
     FALLBACK = {
