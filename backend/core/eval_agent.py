@@ -137,7 +137,8 @@ async def _run_targeted_eval(inputs: dict, project_id: str) -> dict:
         db = get_sync_db()
         try:
             dataset = db.query(Dataset).filter_by(
-                name=inputs.get("dataset_name") or inputs.get("dataset") or inputs.get("name", "")
+                name=inputs.get("dataset_name") or inputs.get("dataset") or inputs.get("name", ""),
+                project_id=project_id,    # add
             ).first()
             if not dataset:
                 return None
