@@ -1,7 +1,7 @@
 import csv
 import io
 from fastapi.responses import StreamingResponse
-from fastapi    import APIRouter, BackgroundTasks, Depends
+from fastapi    import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic   import BaseModel
 from typing     import List, Optional
 from datetime   import datetime
@@ -37,14 +37,18 @@ async def start_eval_run(
     request: Request,
     req: RunEvalRequest,
     bg:  BackgroundTasks,
-    db:  AsyncSession = Depends(get_db)
+    db:  AsyncSession = Depends(get_db),
+    project: Project = Depends(get_current_project),
 ):
     from sqlalchemy import select
     from ..db.models import Dataset, DatasetExample, EvalRun
     from datetime import datetime
 
-    result  = await db.execute(
-        select(Dataset).where(Dataset.name == req.dataset_name)
+    result = await db.execute(
+        select(Dataset).where(
+            Dataset.name == req.dataset_name,
+            Dataset.project_id == project.id,     
+        )
         .order_by(Dataset.created_at.desc())
         .limit(1)
     )
@@ -174,7 +178,10 @@ async def get_eval_run(run_id: str, project: Project = Depends(get_current_proje
     from fastapi import HTTPException
     try:
         run_result = await db.execute(
-            select(EvalRun).where(EvalRun.id == run_id)
+            select(EvalRun).where(
+                EvalRun.id == run_id,
+                EvalRun.project_id == project.id,         
+            )
         )
         run = run_result.scalar_one_or_none()
     except Exception:
@@ -214,13 +221,17 @@ async def get_eval_run(run_id: str, project: Project = Depends(get_current_proje
 @router.get("/{run_id}/export")
 async def export_eval_results(
     run_id: str,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    project: Project = Depends(get_current_project),
 ):
     from sqlalchemy import select
     from ..db.models import EvalRun, EvalResult
 
     run_result = await db.execute(
-        select(EvalRun).where(EvalRun.id == run_id)
+        select(EvalRun).where(
+            EvalRun.id == run_id,
+            EvalRun.project_id == project.id,         
+        )
     )
     run = run_result.scalar_one_or_none()
     if not run:
