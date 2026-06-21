@@ -118,8 +118,13 @@ async def list_datasets(project: Optional[str] = None, db: AsyncSession = Depend
 
 
 @router.get("/{dataset_id}")
-async def get_dataset(dataset_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
+async def get_dataset(dataset_id: str, project: Project = Depends(get_current_project), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Dataset).where(
+            Dataset.id == dataset_id,
+            Dataset.project_id == project.id,
+        )
+    )
     dataset = result.scalar_one_or_none()
     if not dataset:
         raise HTTPException(404, "Dataset not found")
@@ -147,8 +152,13 @@ async def get_dataset(dataset_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.delete("/{dataset_id}", status_code=204)
-async def delete_dataset(dataset_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Dataset).where(Dataset.id == dataset_id))
+async def delete_dataset(dataset_id: str, project: Project = Depends(get_current_project), db: AsyncSession = Depends(get_db)):
+    result = await db.execute(
+        select(Dataset).where(
+            Dataset.id == dataset_id,
+            Dataset.project_id == project.id,             
+        )
+    )
     dataset = result.scalar_one_or_none()
     if not dataset:
         raise HTTPException(404, "Dataset not found")
