@@ -38,11 +38,10 @@ async def run_ab_test(
     async def _run():
         try:
             result = await ab_tester.run(
-                dataset_name   = req.dataset_name,
-                prompt_a       = req.prompt_a,
-                prompt_b       = req.prompt_b,
-                judge_criteria = req.judge_criteria,
-                confidence     = req.confidence,
+                dataset_name=req.dataset_name, prompt_a=req.prompt_a, prompt_b=req.prompt_b,
+                judge_criteria=req.judge_criteria,
+                project_id=project.id,      
+                confidence=req.confidence,
             )
             _tests[test_id] = {
                 "status":  "completed",
