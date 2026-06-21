@@ -123,11 +123,15 @@ async def ingest_spans(
 @router.get("/{trace_id}")
 async def get_trace(
     trace_id: str,
+    project:  Project = Depends(get_current_project),
     db:       AsyncSession = Depends(get_db)
 ):
     result = await db.execute(
         select(Span)
-        .where(Span.trace_id == trace_id)
+        .where(
+            Span.trace_id == trace_id,
+            Span.project_id == project.id,               
+        )
         .order_by(Span.timestamp.asc())
     )
     spans = result.scalars().all()
@@ -165,13 +169,13 @@ async def get_project_spans(
     limit:      int   = 50,
     offset:     int   = 0,
     min_score:  Optional[float] = None,
+    project: Project = Depends(get_current_project),
     db:         AsyncSession = Depends(get_db)
 ):
-    query = (
-        select(Span)
-        .where(Span.project_id == project_id)
-        .order_by(Span.timestamp.desc())
-    )
+    if project_id != project.id:
+        raise HTTPException(404, "Project not found")
+
+    query = select(Span).where(Span.project_id == project.id)
 
     if min_score is not None:
         query = query.where(Span.judge_score <= min_score)
