@@ -1,18 +1,3 @@
-"""
-api/admin.py — Admin endpoints.
-
-GET /api/admin/storage         — table sizes, projected growth
-GET /api/admin/health/detailed — DB, ChromaDB, LLM provider checks
-POST /api/admin/retention/run  — trigger manual retention cleanup
-GET /api/alerts/{id}/deliveries — webhook delivery history
-
-These endpoints require auth but no project scope —
-any valid API key can access them (for now).
-Mount in main.py:
-    from backend.api.admin import router as admin_router
-    app.include_router(admin_router, prefix="/api")
-"""
-
 import asyncio
 from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -28,11 +13,6 @@ router = APIRouter(tags=["admin"])
 async def get_storage_stats(
     project: Project = Depends(get_current_project),
 ) -> dict:
-    """
-    Returns row counts and storage projections per table.
-    Use this to understand how fast data is growing and
-    whether SPAN_RETENTION_DAYS needs adjustment.
-    """
     from ..worker.retention import get_storage_stats_sync
 
     loop = asyncio.get_running_loop()
@@ -47,10 +27,6 @@ async def get_storage_stats(
 async def trigger_retention_cleanup(
     project: Project = Depends(get_current_project),
 ) -> dict:
-    """
-    Manually trigger the retention cleanup job.
-    Normally runs nightly automatically.
-    """
     from ..worker.retention import run_retention_cleanup_sync
 
     loop = asyncio.get_running_loop()
@@ -65,10 +41,6 @@ async def trigger_retention_cleanup(
 async def detailed_health(
     project: Project = Depends(get_current_project),
 ) -> dict:
-    """
-    Checks DB, ChromaDB, and each configured LLM provider.
-    Returns 200 if all critical components healthy, 503 if not.
-    """
     from fastapi import Response
     from ..core.logging_middleware import detailed_health_check
 
@@ -87,16 +59,15 @@ async def get_webhook_deliveries(
     project:  Project = Depends(get_current_project),
     db:       AsyncSession = Depends(get_db),
 ) -> dict:
-    """
-    Returns webhook delivery history for a specific alert.
-    Shows attempts, status, error details, and retry schedule.
-    """
     from sqlalchemy import select
     from ..db.models import WebhookDelivery
 
     result = await db.execute(
         select(WebhookDelivery)
-        .where(WebhookDelivery.alert_id == alert_id)
+        .where(
+            WebhookDelivery.alert_id == alert_id,
+            WebhookDelivery.project_id == project.id,        
+        )
         .order_by(WebhookDelivery.created_at.desc())
     )
     deliveries = result.scalars().all()
