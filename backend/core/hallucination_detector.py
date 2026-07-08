@@ -267,12 +267,11 @@ Return a JSON object with a "claims" array:
             return 0.0
         scores = [
             min(10.0, type_weights.get(c.hallucination_type, 2.0)
-                * (risk_weights.get(c.risk_level, 1.0) / 6.0)
-                * c.confidence)
+                * (risk_weights.get(c.risk_level, 1.0) / 6.0))
             for c in claims
             if c.hallucination_type != HallucinationType.NONE
         ]
-        return round(sum(scores) / len(claims), 2) if scores else 0.0
+        return round(sum(scores) / len(scores), 2) if scores else 0.0
 
     def _score_to_risk(self, score: float) -> str:
         if score >= self.RISK_THRESHOLDS["critical"]: return "critical"
