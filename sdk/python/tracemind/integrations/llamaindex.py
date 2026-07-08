@@ -1,25 +1,3 @@
-"""
-sdk/python/tracemind/integrations/llamaindex.py — Gap 4 fix.
-
-TraceMind observer for LlamaIndex pipelines.
-Captures: query, retrieved nodes, response, latency per pipeline step.
-
-Usage:
-    from tracemind.integrations.llamaindex import TraceMindLlamaIndexObserver
-    from llama_index.core import Settings
-    from llama_index.core.callbacks import CallbackManager
-
-    observer = TraceMindLlamaIndexObserver(
-        api_key  = "ef_live_...",
-        project  = "my-rag-app",
-        base_url = "https://tracemind.onrender.com",
-    )
-    Settings.callback_manager = CallbackManager([observer.handler])
-
-    # Now all LlamaIndex queries are traced automatically
-    response = index.query("What is the refund policy?")
-"""
-
 import time
 import logging
 from typing import Any, Optional, TYPE_CHECKING
@@ -31,10 +9,6 @@ if TYPE_CHECKING:
 
 
 class TraceMindLlamaIndexObserver:
-    """
-    Wraps LlamaIndex's BaseCallbackHandler to trace pipeline steps.
-    Uses the same _buffer_span path as the decorator integration.
-    """
 
     def __init__(
         self,
@@ -92,7 +66,6 @@ class TraceMindLlamaIndexObserver:
                 event_name = pending["event_type"]
                 start_payload = pending["payload"]
 
-                # Extract input and output based on event type
                 input_text  = ""
                 output_text = ""
                 metadata    = {"latency_ms": latency_ms, "event_type": event_name}
