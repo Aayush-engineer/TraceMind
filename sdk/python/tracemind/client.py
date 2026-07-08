@@ -498,6 +498,14 @@ class TraceMind:
             return wrapper
         return decorator
 
+    def wrapOpenAI(self, client: Any) -> Any:
+        from .integrations.openai_integration import OpenAIWrapper
+        return OpenAIWrapper(client, self)
+
+    def wrapAnthropic(self, client: Any) -> Any:
+        from .integrations.anthropic_integration import AnthropicWrapper
+        return AnthropicWrapper(client, self)
+
     def trace_async(self, name: str = None, tags: list[str] = None):
         def decorator(func: Callable) -> Callable:
             span_name = name or func.__name__
@@ -648,9 +656,8 @@ class TraceMind:
                         self_h.wfile.write(json.dumps({"error": str(e)}).encode())
 
                 def log_message(self_h, *args):
-                    pass  # silence HTTP server logs
+                    pass  
 
-            # Find free port
             sock = socket.socket()
             sock.bind(("", 0))
             port = sock.getsockname()[1]
@@ -660,8 +667,6 @@ class TraceMind:
             thread = threading.Thread(target=server.serve_forever, daemon=True)
             thread.start()
 
-            # For local development, use localhost
-            # For production, this won't work — use webhook_url directly
             import socket as _s
             hostname = _s.gethostbyname(_s.gethostname())
             payload["webhook_url"] = f"http://{hostname}:{port}"
@@ -679,7 +684,6 @@ class TraceMind:
         wait:       bool = True,
         timeout:    float = 120.0,
     ) -> str:
-        # Resolve project_id
         if not project_id:
             projects = self._http.get("/api/projects").json()
             proj_list = projects.get("projects", [])
@@ -699,7 +703,6 @@ class TraceMind:
         if not wait:
             return f"Agent run started: {run_id}. Poll /api/agent/runs/{run_id}"
 
-        # Poll until done
         start = time.time()
         while time.time() - start < timeout:
             poll = self._http.get(f"/api/agent/runs/{run_id}")
@@ -716,7 +719,6 @@ class TraceMind:
     # ── Internal ──────────────────────────────────────────────────────────
 
     def _buffer_span(self, span: dict):
-        """Thread-safe span buffering with optional PII redaction."""
         if self._redactor:
             if "input" in span:
                 span["input"]  = self._redactor.redact(span["input"])
