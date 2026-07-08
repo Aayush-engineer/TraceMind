@@ -4,10 +4,8 @@ import time
 import hashlib
 from typing import AsyncGenerator
 import chromadb
-from openai import OpenAI
-
-oai    = OpenAI()
 from .config import CHROMA_DIR
+from .llm import embed as _embed_texts
 chroma = chromadb.PersistentClient(path=CHROMA_DIR)
 
 trace_collection   = chroma.get_or_create_collection("production_traces")
@@ -74,15 +72,11 @@ class TracePipeline:
         return chunks
 
     async def _embed_batch(self, texts: list[str]) -> list[list[float]]:
-        loop     = asyncio.get_event_loop()
-        response = await loop.run_in_executor(
+        loop = asyncio.get_running_loop()
+        return await loop.run_in_executor(
             None,
-            lambda: oai.embeddings.create(
-                model="text-embedding-3-small",
-                input=[t[:8000] for t in texts]
-            )
+            lambda: _embed_texts([t[:2000] for t in texts])
         )
-        return [item.embedding for item in response.data]
 
     def _store_chunks(self, chunks: list[str], embeddings: list[list[float]],
                       span: dict):
@@ -169,14 +163,10 @@ class DocumentPipeline:
         print(f"  Chunked into {len(chunks)} pieces")
 
         all_embeddings = []
-        batch_size     = 50
+        batch_size     = 32   # matches embed()'s internal encode batch_size
         for i in range(0, len(chunks), batch_size):
-            batch      = chunks[i:i+batch_size]
-            response   = oai.embeddings.create(
-                model="text-embedding-3-small",
-                input=[c[:8000] for c in batch]
-            )
-            all_embeddings.extend([e.embedding for e in response.data])
+            batch = chunks[i:i + batch_size]
+            all_embeddings.extend(_embed_texts([c[:2000] for c in batch]))
         print(f"  Embedded {len(all_embeddings)} chunks")
 
         doc_collection = chroma.get_or_create_collection(f"docs_{project_id}")
