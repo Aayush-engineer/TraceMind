@@ -11,8 +11,6 @@ def _hash_content(content: str) -> str:
 
 
 class PromptRegistry:
-    """Database-backed prompt version registry."""
-
     def register(self, project_id, name, content, tags=None,
                  author="api", description="", db: Session = None):
         from ..db.models import PromptVersion
