@@ -1,27 +1,3 @@
-"""
-sdk/python/tracemind/cli/main.py — Gap 6 fix.
-
-Thin Click CLI wrapping the SDK.
-Installs as: tracemind <command>
-
-Usage:
-    tracemind project create my-support-bot
-    tracemind eval run --dataset support-v1 --criteria accurate,helpful
-    tracemind eval status <run_id>
-    tracemind dataset push examples.json
-    tracemind agent ask "Why did quality drop yesterday?"
-    tracemind hallucination check --question "..." --response "..."
-
-Install:
-    pip install tracemind-sdk
-    # Then: tracemind --help
-
-Setup (once):
-    export TRACEMIND_API_KEY=ef_live_...
-    export TRACEMIND_BASE_URL=https://tracemind.onrender.com
-    export TRACEMIND_PROJECT=my-project
-"""
-
 import os
 import sys
 import json
@@ -35,7 +11,6 @@ except ImportError:
     sys.exit(1)
 
 
-# ── Config from env ───────────────────────────────────────────────────────
 
 def _get_config() -> dict:
     api_key  = os.getenv("TRACEMIND_API_KEY", "")
@@ -59,20 +34,14 @@ def _print_json(data: dict) -> None:
     click.echo(json.dumps(data, indent=2))
 
 
-# ── Root CLI group ────────────────────────────────────────────────────────
-
 @click.group()
 @click.version_option(version="0.3.0", prog_name="tracemind")
 def cli() -> None:
-    """TraceMind — LLM quality monitoring CLI."""
     pass
 
 
-# ── tracemind project ─────────────────────────────────────────────────────
-
 @cli.group()
 def project() -> None:
-    """Manage projects."""
     pass
 
 
@@ -80,9 +49,7 @@ def project() -> None:
 @click.argument("name")
 @click.option("--description", "-d", default="", help="Project description")
 def project_create(name: str, description: str) -> None:
-    """Create a new project and print the API key."""
     cfg = _get_config()
-    # project creation does not require auth
     r = httpx.post(
         f"{cfg['base_url']}/api/projects",
         json    = {"name": name, "description": description},
@@ -103,7 +70,6 @@ def project_create(name: str, description: str) -> None:
 
 @project.command("list")
 def project_list() -> None:
-    """List all projects."""
     cfg = _get_config()
     with _client(cfg) as client:
         r = client.get("/api/projects")
@@ -119,11 +85,8 @@ def project_list() -> None:
         sys.exit(1)
 
 
-# ── tracemind eval ────────────────────────────────────────────────────────
-
 @cli.group()
 def eval() -> None:
-    """Run and inspect evaluations."""
     pass
 
 
@@ -135,16 +98,6 @@ def eval() -> None:
 @click.option("--wait/--no-wait", default=True,   help="Wait for completion and print results")
 def eval_run(dataset: str, criteria: str, threshold: float,
              project: str | None, wait: bool) -> None:
-    """
-    Run an evaluation against a golden dataset.
-
-    Example:
-        tracemind eval run --dataset support-v1 --criteria accurate,helpful,safe
-
-    In GitHub Actions:
-        tracemind eval run --dataset support-v1 --threshold 0.80
-        # Exits with code 1 if pass rate < threshold (blocks deploy)
-    """
     cfg = _get_config()
     project_name = project or cfg["project"]
     if not project_name:
@@ -172,7 +125,6 @@ def eval_run(dataset: str, criteria: str, threshold: float,
         click.echo(f"  Track: tracemind eval status {run_id}")
         return
 
-    # Poll for completion
     click.echo("  Waiting for completion...", nl=False)
     start = time.time()
 
@@ -207,7 +159,6 @@ def eval_run(dataset: str, criteria: str, threshold: float,
     click.echo(f"  Avg score:  {avg_score:.2f}/10")
     click.echo(f"  Threshold:  {threshold:.0%}")
 
-    # Print top failures
     failures = [r for r in data.get("results", []) if not r.get("passed")]
     if failures:
         click.echo(f"\n  Top failures ({len(failures)} total):")
@@ -232,7 +183,6 @@ def eval_run(dataset: str, criteria: str, threshold: float,
 @eval.command("status")
 @click.argument("run_id")
 def eval_status(run_id: str) -> None:
-    """Check the status of an eval run."""
     cfg = _get_config()
     with _client(cfg) as client:
         r = client.get(f"/api/evals/{run_id}")
@@ -250,11 +200,8 @@ def eval_status(run_id: str) -> None:
         sys.exit(1)
 
 
-# ── tracemind dataset ─────────────────────────────────────────────────────
-
 @cli.group()
 def dataset() -> None:
-    """Manage golden datasets."""
     pass
 
 
@@ -263,19 +210,6 @@ def dataset() -> None:
 @click.option("--name", "-n", default=None, help="Dataset name (default: filename without extension)")
 @click.option("--project", "-p", default=None)
 def dataset_push(file: str, name: str | None, project: str | None) -> None:
-    """
-    Push a JSON dataset file to TraceMind.
-
-    File format:
-        [
-          {
-            "input": "question here",
-            "expected": "correct answer",
-            "criteria": ["accurate", "helpful"],
-            "category": "policy"
-          }
-        ]
-    """
     import pathlib
 
     cfg          = _get_config()
@@ -309,7 +243,6 @@ def dataset_push(file: str, name: str | None, project: str | None) -> None:
 
 @dataset.command("list")
 def dataset_list() -> None:
-    """List all datasets in the current project."""
     cfg = _get_config()
     with _client(cfg) as client:
         r = client.get("/api/datasets")
@@ -322,11 +255,8 @@ def dataset_list() -> None:
         sys.exit(1)
 
 
-# ── tracemind agent ───────────────────────────────────────────────────────
-
 @cli.group()
 def agent() -> None:
-    """Run diagnostic investigations."""
     pass
 
 
@@ -334,12 +264,6 @@ def agent() -> None:
 @click.argument("query")
 @click.option("--project", "-p", default=None)
 def agent_ask(query: str, project: str | None) -> None:
-    """
-    Ask the diagnostic agent why quality dropped.
-
-    Example:
-        tracemind agent ask "Why did quality drop in the last 6 hours?"
-    """
     cfg          = _get_config()
     project_name = project or cfg["project"]
     if not project_name:
@@ -375,20 +299,18 @@ def agent_ask(query: str, project: str | None) -> None:
     click.echo(f"\n{'='*50}")
     click.echo(f"  Root Cause Analysis")
     click.echo(f"{'='*50}")
-    click.echo(data.get("diagnosis", "No diagnosis available"))
+    click.echo(data.get("answer", "No answer available"))
 
-    steps = data.get("steps_taken", [])
+    steps = data.get("steps", [])
     if steps:
         click.echo(f"\n  Steps ({len(steps)} tool calls):")
         for step in steps:
-            click.echo(f"  → {step.get('tool', '?')}: {str(step.get('result', ''))[:80]}")
+            status = "✓" if step.get("success") else "✗"
+            click.echo(f"  {status} {step.get('tool', '?')}  ({step.get('latency', 0)}ms)")
 
-
-# ── tracemind hallucination ───────────────────────────────────────────────
 
 @cli.group()
 def hallucination() -> None:
-    """Check responses for hallucinations."""
     pass
 
 
@@ -397,7 +319,6 @@ def hallucination() -> None:
 @click.option("--response", "-r", required=True)
 @click.option("--context",  "-c", default="")
 def hallucination_check(question: str, response: str, context: str) -> None:
-    """Check a response for hallucinations."""
     cfg = _get_config()
     with _client(cfg) as client:
         r = client.post("/api/hallucination/check", json={
@@ -427,8 +348,6 @@ def hallucination_check(question: str, response: str, context: str) -> None:
             if c.get("evidence"):
                 click.echo(f"    Evidence: {c['evidence'][:80]}")
 
-
-# ── Entry point ───────────────────────────────────────────────────────────
 
 def main() -> None:
     cli()
