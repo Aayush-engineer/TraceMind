@@ -1,18 +1,3 @@
-"""
-tests/test_auto.py
-
-Tests for tracemind.auto() zero-config instrumentation.
-
-Verifies:
-(a) .env is written with api_key and project_id
-(b) OpenAI is monkey-patched after auto()
-(c) auto() returns a TraceMind instance
-(d) auto() falls back to _NoOpTraceMind when server unreachable
-(e) dev mode is detected from ENVIRONMENT env var
-(f) project name detected from git remote
-(g) project name falls back to directory name when git unavailable
-"""
-
 import os
 import sys
 import json
@@ -24,10 +9,7 @@ from pathlib import Path
 from unittest.mock import patch, MagicMock, call
 
 
-# ── Helpers ────────────────────────────────────────────────────────────────
-
 def _make_project_response(name: str = "test-project") -> dict:
-    """Simulate the /api/projects response."""
     return {
         "id":      "abc123def456",
         "name":    name,
@@ -42,8 +24,6 @@ def _make_httpx_response(data: dict, status_code: int = 201) -> MagicMock:
     mock.raise_for_status.return_value = None
     return mock
 
-
-# ── Test: project name detection ───────────────────────────────────────────
 
 class TestDetectProjectName:
 
@@ -88,8 +68,6 @@ class TestDetectProjectName:
                 result = _detect_project_name()
                 assert result == "fallback-project"
 
-
-# ── Test: API key loading ──────────────────────────────────────────────────
 
 class TestLoadOrCreateApiKey:
 
@@ -158,8 +136,6 @@ class TestLoadOrCreateApiKey:
         assert api_key    == ""
         assert project_id == ""
 
-
-# ── Test: auto() return value ──────────────────────────────────────────────
 
 class TestAutoFunction:
 
@@ -267,8 +243,6 @@ class TestAutoFunction:
         assert tracemind._auto_instance is not None
 
 
-# ── Test: OpenAI patching ─────────────────────────────────────────────────
-
 class TestOpenAIPatch:
 
     def test_openai_is_patched_when_installed(self):
@@ -307,9 +281,6 @@ class TestOpenAIPatch:
     def test_patch_openai_silent_on_wrap_failure(self):
         """OpenAI patch must not raise if wrapOpenAI fails."""
         from tracemind.auto import _patch_openai
-
-        # Create a real-ish mock where OpenAI can be instantiated
-        # but wrapOpenAI raises
         mock_tm = MagicMock()
         mock_tm.wrapOpenAI.side_effect = RuntimeError("wrap failed")
 
@@ -331,8 +302,6 @@ class TestOpenAIPatch:
             except Exception as exc:
                 pytest.fail(f"_patch_openai raised unexpectedly: {exc}")
 
-
-# ── Test: library detection ───────────────────────────────────────────────
 
 class TestLibraryDetection:
 
@@ -380,19 +349,9 @@ class TestLibraryDetection:
                 pytest.fail(f"auto() raised with no libraries: {exc}")
 
 
-# ── Test: end-to-end happy path ───────────────────────────────────────────
-
 class TestEndToEnd:
 
     def test_full_happy_path(self, tmp_path, monkeypatch):
-        """
-        Complete happy path:
-        - git remote returns repo name
-        - no existing .env
-        - server returns new project
-        - .env is written
-        - TraceMind instance returned
-        """
         from tracemind.auto import auto
 
         env_file = tmp_path / ".env"
