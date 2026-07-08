@@ -18,7 +18,7 @@ async def get_storage_stats(
     loop = asyncio.get_running_loop()
     db   = get_sync_db()
     try:
-        return await loop.run_in_executor(None, get_storage_stats_sync, db)
+        return await loop.run_in_executor(None, get_storage_stats_sync, db, project.id)
     finally:
         db.close()
 
@@ -32,7 +32,7 @@ async def trigger_retention_cleanup(
     loop = asyncio.get_running_loop()
     db   = get_sync_db()
     try:
-        return await loop.run_in_executor(None, run_retention_cleanup_sync, db)
+        return await loop.run_in_executor(None, run_retention_cleanup_sync, db, project.id)
     finally:
         db.close()
 
