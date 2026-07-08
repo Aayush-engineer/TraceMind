@@ -1,31 +1,3 @@
-"""
-tracemind/auto.py — Zero-config auto instrumentation.
-
-One line. That's it.
-
-    import tracemind
-    tracemind.auto()
-
-    # Your existing code unchanged:
-    from openai import OpenAI
-    client = OpenAI()
-    client.chat.completions.create(...)  # traced, scored, monitored
-
-What this does automatically:
-1. Detects project name from git remote (falls back to directory name)
-2. Loads API key from .env or creates a new project and saves the key
-3. Patches every installed LLM library (openai, anthropic, langchain)
-4. In dev mode: prints score to terminal after each call
-5. If server is offline: falls back to terminal-only no-op mode
-
-Design constraints:
-- auto() must NEVER raise — every failure is silent or logged
-- Works with no internet (offline no-op mode)
-- Works with no git (falls back to directory name)
-- Works with no .env (creates one)
-- Importable as: tracemind.auto() or from tracemind import auto; auto()
-"""
-
 from __future__ import annotations
 from .client import TraceMind
 import importlib.util
@@ -39,13 +11,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# ── Project name detection ─────────────────────────────────────────────────
-
 def _detect_project_name() -> str:
-    """
-    Try git remote first, fall back to directory name.
-    Never raises.
-    """
     try:
         result = subprocess.run(
             ["git", "remote", "get-url", "origin"],
@@ -67,29 +33,15 @@ def _detect_project_name() -> str:
     return os.path.basename(os.getcwd())
 
 
-# ── API key management ────────────────────────────────────────────────────
-
 def _load_or_create_api_key(
     project_name: str,
     base_url:     str,
 ) -> tuple[str, str]:
-    """
-    Returns (api_key, project_id).
-
-    Order of preference:
-    1. TRACEMIND_API_KEY + TRACEMIND_PROJECT_ID already in environment
-    2. Same keys found in .env file
-    3. Create new project via API, save to .env
-
-    If server is unreachable, returns ("", "") — caller handles fallback.
-    """
-    # Load .env into environment if present
     env_path = Path(".env")
     try:
         from dotenv import load_dotenv, set_key
         load_dotenv(env_path, override=False)
     except ImportError:
-        # python-dotenv not installed — read .env manually
         _load_env_file_manually(env_path)
 
     api_key    = os.getenv("TRACEMIND_API_KEY",    "")
@@ -98,7 +50,6 @@ def _load_or_create_api_key(
     if api_key and project_id:
         return api_key, project_id
 
-    # Create project via API
     try:
         import httpx
         resp = httpx.post(
@@ -115,7 +66,6 @@ def _load_or_create_api_key(
         api_key    = data["api_key"]
         project_id = data["id"]
 
-        # Write to .env
         _write_to_env(env_path, api_key, project_id)
 
         return api_key, project_id
@@ -126,7 +76,6 @@ def _load_or_create_api_key(
 
 
 def _load_env_file_manually(env_path: Path) -> None:
-    """Minimal .env parser when python-dotenv is not installed."""
     if not env_path.exists():
         return
     try:
@@ -143,20 +92,17 @@ def _load_env_file_manually(env_path: Path) -> None:
 
 
 def _write_to_env(env_path: Path, api_key: str, project_id: str) -> None:
-    """Write API key and project ID to .env."""
     try:
         from dotenv import set_key
         env_path.touch(exist_ok=True)
         set_key(str(env_path), "TRACEMIND_API_KEY",    api_key)
         set_key(str(env_path), "TRACEMIND_PROJECT_ID", project_id)
     except ImportError:
-        # Fallback: append to file manually
         try:
             env_path.touch(exist_ok=True)
             existing = env_path.read_text()
             lines    = existing.splitlines()
 
-            # Remove any existing keys
             lines = [l for l in lines
                      if not l.startswith("TRACEMIND_API_KEY=")
                      and not l.startswith("TRACEMIND_PROJECT_ID=")]
@@ -169,15 +115,7 @@ def _write_to_env(env_path: Path, api_key: str, project_id: str) -> None:
     except Exception as exc:
         logger.debug("TraceMind: could not write .env: %s", exc)
 
-
-# ── No-op fallback (offline mode) ─────────────────────────────────────────
-
 class _NoOpTraceMind:
-    """
-    Returned when server is unreachable.
-    Prints traces to terminal only. Never errors.
-    Implements the same interface as TraceMind so callers work unchanged.
-    """
     _dev_mode  = True
     _threshold = 7.0
 
@@ -208,14 +146,7 @@ class _NoOpTraceMind:
         pass
 
 
-# ── Library patchers ──────────────────────────────────────────────────────
-
 def _patch_openai(tm) -> None:
-    """
-    Monkey-patch OpenAI.__init__ so every new OpenAI() instance
-    is automatically traced. Existing clients are NOT patched
-    (they were already created before auto() was called).
-    """
     try:
         import openai as _oai
 
@@ -236,10 +167,6 @@ def _patch_openai(tm) -> None:
 
 
 def _patch_anthropic(tm) -> None:
-    """
-    Monkey-patch Anthropic.__init__ so every new Anthropic() instance
-    has its messages interface traced.
-    """
     try:
         import anthropic as _ant
 
@@ -248,7 +175,6 @@ def _patch_anthropic(tm) -> None:
         def patched_init(self, *args, **kwargs):
             original_init(self, *args, **kwargs)
             try:
-                # Wrap messages.create with a tracing shim
                 original_create = self.messages.create
 
                 def traced_create(**call_kwargs):
@@ -286,12 +212,7 @@ def _patch_anthropic(tm) -> None:
 
 
 def _patch_langchain(tm) -> None:
-    """
-    Register TraceMind as a global LangChain callback handler.
-    Works with LangChain v0.1+ callback system.
-    """
     try:
-        # Try v0.1+ callback approach
         import langchain_core.callbacks as _lc_callbacks
 
         class _AutoHandler(_lc_callbacks.BaseCallbackHandler):
@@ -325,12 +246,10 @@ def _patch_langchain(tm) -> None:
                     latency_ms  = round((time.time() - getattr(self, "_t0", time.time())) * 1000, 1),
                 )
 
-        # Register globally — affects all new LLM instances
         from langchain_core.callbacks import set_handler
         set_handler(_AutoHandler())
 
     except ImportError:
-        # Try older langchain callback approach
         try:
             from langchain.callbacks import get_callback_manager
             import langchain
@@ -358,10 +277,6 @@ def _patch_langchain(tm) -> None:
 
 
 def _patch_groq(tm) -> None:
-    """
-    Monkey-patch Groq.__init__ for Groq direct users.
-    Same pattern as OpenAI patch.
-    """
     try:
         import groq as _groq
 
@@ -404,13 +319,7 @@ def _patch_groq(tm) -> None:
         logger.debug("TraceMind: could not patch Groq: %s", exc)
 
 
-# ── Dev mode terminal reporter ────────────────────────────────────────────
-
 def _enable_dev_mode(tm, threshold: float) -> None:
-    """
-    In dev mode, print every score to terminal immediately after scoring.
-    Gives developers instant feedback without opening the dashboard.
-    """
     original_buffer = tm._buffer_span
 
     RESET  = "\033[0m"
@@ -422,11 +331,9 @@ def _enable_dev_mode(tm, threshold: float) -> None:
 
     def dev_buffer_span(name: str = "", input_text: str = "",
                         output_text: str = "", **kwargs):
-        # Call original — span still goes to server
         original_buffer(name=name, input_text=input_text,
                         output_text=output_text, **kwargs)
 
-        # Print to terminal immediately
         status = kwargs.get("status", "success")
         error  = kwargs.get("error", "")
         ms     = kwargs.get("latency_ms", 0)
@@ -453,62 +360,25 @@ def _enable_dev_mode(tm, threshold: float) -> None:
     tm._buffer_span = dev_buffer_span
 
 
-# ── Public auto() function ────────────────────────────────────────────────
-
 def auto(
     base_url:  str   = "https://tracemind.onrender.com",
     dev_mode:  Optional[bool] = None,
     threshold: float = 7.0,
 ):
-    """
-    Zero-config TraceMind instrumentation.
-
-    Automatically:
-    - Detects project name from git remote
-    - Loads or creates API key (saves to .env)
-    - Patches every installed LLM library
-    - Enables terminal output in dev mode
-
-    Usage:
-        import tracemind
-        tracemind.auto()
-
-        # Your existing code unchanged:
-        from openai import OpenAI
-        client = OpenAI()
-        client.chat.completions.create(...)  # automatically traced
-
-    Args:
-        base_url:  TraceMind server URL (default: hosted instance)
-        dev_mode:  Print scores to terminal. None = auto-detect from ENVIRONMENT env var.
-        threshold: Score below this triggers a warning in dev mode (default: 7.0)
-
-    Returns:
-        TraceMind instance (or _NoOpTraceMind if server unreachable)
-
-    Raises:
-        Never — all failures are silent.
-    """
     try:
         from .client import TraceMind
     except ImportError:
-        # Running outside the package somehow — return no-op
         return _NoOpTraceMind()
 
-    # ── Step 1: Project name ─────────────────────────────────────────
     project_name = _detect_project_name()
 
-    # ── Step 2: API key ──────────────────────────────────────────────
     api_key, project_id = _load_or_create_api_key(project_name, base_url)
 
-    # ── Step 3: Dev mode detection ───────────────────────────────────
     if dev_mode is None:
         env_val  = os.getenv("ENVIRONMENT", os.getenv("ENV", "development")).lower()
         dev_mode = env_val in ("development", "dev", "local", "test", "")
 
-    # ── Step 4: TraceMind instance ───────────────────────────────────
     if not api_key:
-        # Server unreachable — offline no-op mode
         tm = _NoOpTraceMind()
         print(
             f"[tracemind] ⚠ Server unreachable — running in offline mode.\n"
@@ -528,14 +398,12 @@ def auto(
             logger.debug("TraceMind: client init failed: %s", exc)
             tm = _NoOpTraceMind()
 
-    # ── Step 5: Dev mode terminal output ────────────────────────────
     if dev_mode and not isinstance(tm, _NoOpTraceMind):
         try:
             _enable_dev_mode(tm, threshold)
         except Exception as exc:
             logger.debug("TraceMind: dev mode setup failed: %s", exc)
 
-    # ── Step 6: Patch installed libraries ───────────────────────────
     patched: list[str] = []
     patches = [
         ("openai",    _patch_openai),
@@ -552,14 +420,12 @@ def auto(
             except Exception as exc:
                 logger.debug("TraceMind: %s patch raised: %s", lib_name, exc)
 
-    # ── Step 7: Store singleton ──────────────────────────────────────
     try:
         import tracemind as _tm_module
         _tm_module._auto_instance = tm
     except Exception:
         pass
 
-    # ── Step 8: Confirmation output ─────────────────────────────────
     mode_str = "dev" if dev_mode else "production"
     libs_str = ", ".join(patched) if patched else "none detected"
     offline  = isinstance(tm, _NoOpTraceMind)
