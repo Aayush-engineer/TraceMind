@@ -11,7 +11,7 @@ from ..db.models   import Span, Project
 from ..core.auth import get_current_project
 from ..core.limiter import limiter
 from fastapi import Request
-from ..core.cost_tracker import get_cost_tracker
+from ..core.cost_tracker import record_cost
 
 
 router = APIRouter(dependencies=[Depends(get_current_project)])
@@ -91,22 +91,23 @@ async def ingest_spans(
         spans_to_insert.append(span)
 
     db.add_all(spans_to_insert)
-    await db.commit()
 
-    # Record cost for spans that have token metadata
-    tracker = get_cost_tracker()
+    # Record cost for spans that have token metadata — persisted to the
+    # CostRecord table via this same session, committed together with
+    # the spans below so both succeed or fail as one transaction.
     for span_data in payload.spans:
         meta = span_data.metadata or {}
         if meta.get("input_tokens") and meta.get("provider"):
-            tracker.record(
-                project_id    = project.id,
+            await record_cost(
+                db, project.id,
                 provider      = str(meta.get("provider", "unknown")),
                 model         = str(meta.get("model",    "unknown")),
                 input_tokens  = int(meta.get("input_tokens",  0)),
                 output_tokens = int(meta.get("output_tokens", 0)),
                 span_name     = span_data.name,
-                quality_score = None,
             )
+
+    await db.commit()
 
     logger.info(
         f"Ingested {len(spans_to_insert)} spans "
