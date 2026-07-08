@@ -1,21 +1,3 @@
-"""
-sdk/python/tracemind/integrations/dspy.py — Gap 4 fix.
-
-TraceMind callback for DSPy pipelines.
-Wraps DSPy's Predict and ChainOfThought to trace each module call.
-
-Usage:
-    from tracemind.integrations.dspy import TraceMindDSPyCallback, patch_dspy
-
-    # Option A: patch globally (traces all DSPy modules)
-    patch_dspy(api_key="ef_live_...", project="my-dspy-app",
-               base_url="https://tracemind.onrender.com")
-
-    # Option B: use as context manager for a specific block
-    with TraceMindDSPyCallback(api_key="ef_live_...", project="my-dspy-app") as tm:
-        result = my_program(question="What is the refund policy?")
-"""
-
 import time
 import logging
 import functools
@@ -25,10 +7,6 @@ logger = logging.getLogger(__name__)
 
 
 class TraceMindDSPyCallback:
-    """
-    Patches DSPy module forward() methods to capture inputs and outputs.
-    Works with Predict, ChainOfThought, ReAct, and custom modules.
-    """
 
     def __init__(
         self,
@@ -49,7 +27,6 @@ class TraceMindDSPyCallback:
         self._tm.flush()
 
     def _patch(self) -> None:
-        """Monkey-patch DSPy module forward() methods."""
         try:
             import dspy
         except ImportError:
@@ -57,7 +34,6 @@ class TraceMindDSPyCallback:
 
         tm = self._tm
 
-        # Patch the base Module class so all subclasses are covered
         original_forward = dspy.Module.__call__
 
         @functools.wraps(original_forward)
@@ -129,15 +105,6 @@ def patch_dspy(
     project:  str,
     base_url: str = "https://tracemind.onrender.com",
 ) -> TraceMindDSPyCallback:
-    """
-    Globally patch DSPy. Call once at startup.
-    Returns the callback object so you can call flush() at shutdown.
-
-    Example:
-        tm_dspy = patch_dspy(api_key="ef_live_...", project="my-app")
-        # ... run your program ...
-        tm_dspy.flush()
-    """
     callback = TraceMindDSPyCallback(api_key=api_key, project=project, base_url=base_url)
     callback._patch()
     return callback
