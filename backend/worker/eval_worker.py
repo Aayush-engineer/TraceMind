@@ -1,12 +1,13 @@
 import asyncio
 import logging
 import time
+import re
 from datetime import datetime
+from typing import Optional
 
 from ..db.database      import get_sync_db
 from ..db.models        import EvalRun, Span, Alert
 from ..core.regression_detector import RegressionDetector
-import datetime
 from ..worker.retention import run_retention_cleanup_sync
 
 logger   = logging.getLogger(__name__)
@@ -59,7 +60,6 @@ class EvalWorker:
             self._last_retention_run = now
 
     async def _process_webhook_retries(self):
-        """Process pending webhook deliveries with exponential backoff."""
         from ..core.webhook_delivery import process_pending_deliveries_sync
         loop = asyncio.get_running_loop()
         n = await loop.run_in_executor(None, process_pending_deliveries_sync, get_sync_db())
@@ -103,7 +103,7 @@ class EvalWorker:
             db = get_sync_db()
             try:
                 return db.query(Span).filter(
-                    Span.judge_score == None,  # noqa: E711
+                    Span.judge_score == None,  
                     Span.output      != "",
                     Span.input       != "",
                     Span.error       == ""
@@ -121,18 +121,24 @@ class EvalWorker:
         for span in spans:
             try:
                 score = await self._score_span(span.input, span.output)
-                await loop.run_in_executor(
-                    None, self._save_score, span.id, score
-                )
-                await asyncio.sleep(0.5)   
+                if score is None:
+                    logger.warning(
+                        "Span %s: judge returned unparseable response, "
+                        "marking as unscorable (score=-1) to stop retry loop",
+                        span.id,
+                    )
+                    await loop.run_in_executor(None, self._save_score, span.id, -1.0)
+                else:
+                    await loop.run_in_executor(None, self._save_score, span.id, score)
+                await asyncio.sleep(0.5)
             except Exception:
                 logger.exception(f"Failed to score span {span.id}")
 
-    async def _score_span(self, input_text: str, output: str) -> float:
+    async def _score_span(self, input_text: str, output: str) -> Optional[float]:
         from ..core.llm import chat
         loop = asyncio.get_running_loop()
 
-        def _call():
+        def _call() -> Optional[float]:
             result = chat(
                 messages = [{"role": "user", "content":
                     f"Input: {input_text[:300]}\nOutput: {output[:300]}\n"
@@ -142,7 +148,10 @@ class EvalWorker:
                 model      = "fast",
                 max_tokens = 5
             )
-            return min(10.0, max(0.0, float(result.strip())))
+            match = re.search(r"\d+(\.\d+)?", result)
+            if not match:
+                return None
+            return min(10.0, max(0.0, float(match.group())))
 
         return await loop.run_in_executor(None, _call)
 
@@ -288,7 +297,6 @@ class EvalWorker:
             )            
 
     def _save_alerts(self, regressions: list) -> None:
-        """Save regression alerts. Gets a real project_id from DB first."""
         from ..db.database import get_sync_db
         from ..db.models   import Alert, Project
 
