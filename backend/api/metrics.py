@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from ..db.database import get_db
 from ..db.models import Span, EvalRun, Project
 from ..core.auth import get_current_project
-from ..core.cost_tracker import get_cost_tracker
+from ..core.cost_tracker import get_cost_summary
 
 router = APIRouter(dependencies=[Depends(get_current_project)])
 
@@ -24,7 +24,7 @@ async def get_summary(project_id: str, project: Project = Depends(get_current_pr
 
     # Try last 24h first; fall back to all-time if empty
     for window in [86400, 86400 * 30, None]:
-        where_clauses = [Span.project_id == project_id]
+        where_clauses = [Span.project_id == project_id, Span.judge_score >= 0]
         if window is not None:
             since = time.time() - window
             where_clauses.append(Span.timestamp >= since)
@@ -58,16 +58,15 @@ async def get_summary(project_id: str, project: Project = Depends(get_current_pr
     else:
         pass_rate = 0.0
 
-    tracker      = get_cost_tracker()
-    cost_summary = tracker.summary(project_id=project_id, days=1)
+    cost_summary = await get_cost_summary(db, project_id, days=1)
 
     return {
         "avg_score":       avg_score,
         "pass_rate":       pass_rate,
         "total_calls":     total_calls,
-        "cost":            cost_summary.total_usd or total_cost,
-        "cost_by_model":   cost_summary.by_model,
-        "top_cost_driver": cost_summary.top_cost_driver,
+        "cost":            cost_summary["total_usd"] or total_cost,
+        "cost_by_model":   cost_summary["by_model"],
+        "top_cost_driver": cost_summary["top_cost_driver"],
     }
 
 
