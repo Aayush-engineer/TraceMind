@@ -16,21 +16,6 @@ except ImportError:
 
 
 class TraceMindCallbackHandler(BaseCallbackHandler):
-    """
-    LangChain callback handler that traces every LLM call to TraceMind.
-
-    Captures:
-    - Input prompts (all messages)
-    - Output responses
-    - Token usage and estimated cost
-    - Latency
-    - Chain metadata (chain type, run ID)
-    - Errors
-
-    Usage:
-        handler = TraceMindCallbackHandler(tm)
-        llm = ChatOpenAI(callbacks=[handler])
-    """
 
     def __init__(
         self,
