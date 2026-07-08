@@ -5,7 +5,6 @@ from typing    import Callable, Optional
 from dataclasses import dataclass
 
 from .llm import chat
-from .multi_sample_judge import MultiSampleEvalEngine
 from .eval_metrics import (
     evaluate_with_context,
     aggregate_eval_results,
@@ -73,7 +72,6 @@ async def run_case(
     system_fn:      Callable[[str], str],
     judge_criteria: list[str],
     semaphore:      asyncio.Semaphore,
-    judge_engine:   MultiSampleEvalEngine = None,
     task_type:      Optional[EvalTask]    = None,
 ) -> CaseResult:
     async with semaphore:
@@ -188,15 +186,9 @@ async def run_eval_parallel(
         }
 
     semaphore    = asyncio.Semaphore(max_concurrent)
-    judge_engine = MultiSampleEvalEngine(
-        chat_fn   = chat,
-        n_samples = 2,
-        threshold = 7.0,
-        fast_mode = True,
-    )
 
     tasks = [
-        run_case(ex, system_fn, judge_criteria, semaphore, judge_engine, task_type)
+        run_case(ex, system_fn, judge_criteria, semaphore, task_type)
         for ex in examples
     ]
 
