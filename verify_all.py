@@ -1,17 +1,6 @@
-#!/usr/bin/env python3
 """
 TraceMind Complete Verification Suite
-======================================
 Tests every feature end-to-end against your running backend.
-
-Usage:
-    # Local:
-    python verify_all.py
-
-    # Deployed:
-    python verify_all.py https://tracemind.onrender.com
-
-Requires: pip install httpx
 """
 
 import sys
