@@ -190,8 +190,8 @@ class PromptVersion(Base):
 
 class ABTestRun(Base):
     __tablename__ = "ab_test_runs"
-    id             = Column(String(12), primary_key=True, default=gen_id)
-    project_id     = Column(String(12), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    id             = Column(String(20), primary_key=True, default=gen_id)
+    project_id     = Column(String(20), ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
     name           = Column(String(255), nullable=False)
     status         = Column(String(32),  default="running")
     dataset_name   = Column(String(255), nullable=False)
