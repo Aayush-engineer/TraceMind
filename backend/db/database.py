@@ -58,6 +58,8 @@ sync_engine = create_engine(
     pool_pre_ping = True,
     pool_size     = 5 if not _is_sqlite else 1,
     max_overflow  = 10 if not _is_sqlite else 0,
+    pool_timeout  = 10, 
+    pool_recycle  = 300,
 )
 
 SessionLocal = sessionmaker(
@@ -77,6 +79,7 @@ else:
         pool_pre_ping=True,
         pool_size=5,
         max_overflow=10,
+        pool_recycle=300,
         echo=False,
         connect_args={"ssl": "require"},
     )
