@@ -8,7 +8,6 @@ from typing import Callable, Optional
 
 @dataclass
 class VariantResult:
-    """Results for one prompt variant."""
     variant_id:   str
     prompt:       str
     pass_rate:    float
@@ -261,7 +260,6 @@ class PromptABTester:
         u1 = sum(1 for x in a for y in b if x > y) + \
              sum(0.5 for x in a for y in b if x == y)
 
-        # Normal approximation (valid for n > 20, reasonable for n > 8)
         mu_u    = n1 * n2 / 2
         sigma_u = math.sqrt(n1 * n2 * (n1 + n2 + 1) / 12)
 
@@ -269,15 +267,13 @@ class PromptABTester:
             return 1.0
 
         z       = (u1 - mu_u) / sigma_u
-        p_value = 2 * (1 - self._normal_cdf(abs(z)))   # two-tailed
+        p_value = 2 * (1 - self._normal_cdf(abs(z)))   
         return round(max(0.001, min(1.0, p_value)), 4)
 
     def _normal_cdf(self, x: float) -> float:
-        """Approximation of the normal CDF."""
         return 0.5 * (1 + math.erf(x / math.sqrt(2)))
 
     def _cohens_d(self, a: list[float], b: list[float]) -> float:
-        """Cohen's d effect size."""
         if len(a) < 2 or len(b) < 2:
             return 0.0
 
