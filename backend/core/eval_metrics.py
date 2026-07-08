@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import math
 import re
 import statistics
@@ -8,6 +9,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Callable
 from .llm import chat
+
+logger = logging.getLogger(__name__)
 
 
 class EvalTask(str, Enum):
@@ -316,7 +319,7 @@ async def evaluate_with_context(
     elif agreement >= 0.60: confidence_label = "medium"
     else:                   confidence_label = "low"
 
-    if ref_match is not None and ref_match < 0.2:
+    if ref_match is not None and ref_match < 0.2 and is_ambiguous:
         final_score = min(final_score, 5.0)
         factual_contradiction = True
 
@@ -447,8 +450,12 @@ Return ONLY this JSON:
             )
         )
 
+        
+
         cleaned = raw.replace("```json", "").replace("```", "").strip()
         data    = json.loads(cleaned)
+
+         
 
         score = float(data.get("overall_score") or data.get("score") or 5.0)
         score = min(10.0, max(0.0, score))
