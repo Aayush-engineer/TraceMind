@@ -74,12 +74,44 @@ async def lifespan(app: FastAPI):
     logger.info("TraceMind starting up...")
     await init_db()
 
+    from .db.database import get_sync_db
+    from .db.models import EvalRun, AgentRun
+    import asyncio as _asyncio
+
+    def _reconcile_orphaned_runs():
+        db = get_sync_db()
+        try:
+            n1 = db.query(EvalRun).filter(EvalRun.status == "running").update(
+                {"status": "failed"}, synchronize_session=False
+            )
+            n2 = db.query(AgentRun).filter(AgentRun.status == "running").update(
+                {"status": "failed", "error": "Orphaned by server restart"},
+                synchronize_session=False
+            )
+            db.commit()
+            if n1 or n2:
+                logger.warning(
+                    "Startup reconciliation: marked %d eval run(s) and %d agent run(s) "
+                    "as failed (orphaned by previous unclean shutdown)", n1, n2
+                )
+        finally:
+            db.close()
+
+    loop = _asyncio.get_event_loop()
+    await loop.run_in_executor(None, _reconcile_orphaned_runs)
+
     worker = EvalWorker()
     worker_task = asyncio.create_task(worker.run())
 
     worker.ws_manager = manager
 
     logger.info("TraceMind ready")
+    logger.warning(
+        "Running in single-instance mode: WebSocket broadcast state "
+        "(ConnectionManager) is process-local and will not work correctly "
+        "if scaled to multiple workers/instances without a shared pub-sub "
+        "layer (e.g. Redis). This is a known, intentional constraint."
+    )
     yield
 
     logger.info("TraceMind shutting down...")
