@@ -22,10 +22,6 @@ class JudgeSample:
 
 @dataclass
 class MultiSampleResult:
-    """
-    Result from multi-sample evaluation.
-    More trustworthy than a single sample.
-    """
     # Core result
     input:     str
     output:    str
@@ -53,7 +49,6 @@ class MultiSampleResult:
 
     @property
     def score_range(self) -> tuple[float, float]:
-        """(min, max) across samples — shows variance."""
         return (min(self.samples), max(self.samples))
 
     @property
@@ -80,16 +75,9 @@ class MultiSampleResult:
 
 
 def _agreement_score(scores: list[float]) -> float:
-    """
-    Compute agreement as 1 - normalized_std.
-    std=0 → agreement=1.0 (perfect)
-    std=1 → agreement=0.5
-    std=2 → agreement=0.0 (high variance)
-    """
     if len(scores) < 2:
         return 1.0
     std = statistics.stdev(scores)
-    # Normalize: std of 2.0 on 0-10 scale = 0 agreement
     return max(0.0, min(1.0, 1.0 - std / 2.0))
 
 
@@ -144,17 +132,6 @@ Return ONLY valid JSON:
 
 
 class MultiSampleEvalEngine:
-    """
-    Production-grade eval engine with multi-sample consensus.
-
-    Key properties:
-    - Each case evaluated N times (default 3)
-    - Median used as final score (robust to outliers)
-    - Agreement score computed (std deviation)
-    - Ambiguous cases flagged (never fake certainty)
-    - Async parallel evaluation (no sequential overhead)
-    """
-
     def __init__(
         self,
         chat_fn:    Callable,
@@ -176,7 +153,6 @@ class MultiSampleEvalEngine:
         expected:   str = "",
         criteria:   list[str] = None,
     ) -> MultiSampleResult:
-        """Evaluate one case with N samples."""
         t0       = time.time()
         criteria = criteria or ["accurate", "helpful"]
         prompt   = _judge_prompt(input_text, output, expected, criteria)
@@ -243,14 +219,6 @@ class MultiSampleEvalEngine:
         max_concurrent: int = 3,
         on_progress: Optional[Callable] = None,
     ) -> dict:
-        """
-        Evaluate a full dataset with multi-sample consensus.
-
-        Returns summary with:
-        - pass_rate, avg_score (medians, trustworthy)
-        - ambiguous_count (cases with low agreement)
-        - per-case results
-        """
         sem     = asyncio.Semaphore(max_concurrent)
         results = []
 
@@ -288,7 +256,6 @@ class MultiSampleEvalEngine:
         }
 
     async def _single_sample(self, prompt: str) -> Optional[JudgeSample]:
-        """Run one judge call. Returns None on failure."""
         async with self._sem:
             t0   = time.time()
             loop = asyncio.get_running_loop()
