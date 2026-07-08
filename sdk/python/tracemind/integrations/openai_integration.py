@@ -135,10 +135,6 @@ class _TracedChat:
 
 
 class OpenAIWrapper:
-    """
-    Transparent wrapper around the OpenAI client.
-    Every call is automatically traced with input, output, tokens, and cost.
-    """
 
     def __init__(self, client: Any, tm: "TraceMind"):
         self._client = client
