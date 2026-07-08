@@ -23,7 +23,7 @@ class ExampleInput(BaseModel):
 
 class CreateDatasetRequest(BaseModel):
     name:        str
-    project:     str          
+    project:     Optional[str] = None   
     description: Optional[str] = ""
     examples:    Optional[List[ExampleInput]] = []
 
@@ -31,16 +31,14 @@ class CreateDatasetRequest(BaseModel):
 @router.post("", status_code=201)
 async def create_or_update_dataset(
     req: CreateDatasetRequest,
-    db: AsyncSession = Depends(get_db)
+    project: Project = Depends(get_current_project),
+    db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
-        select(Project).where(
-            (Project.name == req.project) | (Project.id == req.project)
-        )
-    )
-    project = result.scalar_one_or_none()
-    if not project:
-        raise HTTPException(404, f"Project '{req.project}' not found")
+    # The API key already identifies the project. If the caller also sent
+    # a project name/id in the body, it must match the authenticated
+    # project — never trust the body to pick an arbitrary target.
+    if req.project and req.project not in (project.name, project.id):
+        raise HTTPException(403, "project in request body does not match authenticated project")
 
     ds_result = await db.execute(
         select(Dataset).where(
@@ -84,22 +82,14 @@ async def create_or_update_dataset(
 
 
 @router.get("")
-async def list_datasets(project: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    query = select(Dataset)
-    if project:
-        proj_result = await db.execute(
-            select(Project).where(
-                (Project.name == project) | (Project.id == project)
-            )
-        )
-        proj = proj_result.scalar_one_or_none()
-        if proj:
-            query = query.where(Dataset.project_id == proj.id)
-
+async def list_datasets(
+    project: Project = Depends(get_current_project),
+    db: AsyncSession = Depends(get_db),
+):
+    query = select(Dataset).where(Dataset.project_id == project.id)
     result = await db.execute(query.order_by(Dataset.created_at.desc()))
     datasets = result.scalars().all()
 
-    # Get example counts
     out = []
     for ds in datasets:
         count_result = await db.execute(
