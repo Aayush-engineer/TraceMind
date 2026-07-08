@@ -3,7 +3,7 @@ import json
 import uuid
 import time
 from dataclasses import dataclass, field
-from typing import Optional, TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING, Callable
 
 if TYPE_CHECKING:
     from .client import TraceMind
@@ -22,19 +22,6 @@ class TurnScore:
 
 @dataclass
 class ConversationResult:
-    """
-    Complete evaluation result for a multi-turn conversation.
-
-    Attributes:
-        resolved:      Did the conversation achieve its intended goal?
-        coherence:     0-10, is the conversation logically consistent?
-        avg_turn_score: Average quality across all assistant turns
-        turn_scores:   Per-turn breakdown
-        overall_score: Weighted final score
-        passed:        True if overall_score >= threshold
-        reasoning:     Summary explanation from judge
-        issues:        Specific problems found
-    """
     conversation_id: str
     resolved:        bool
     coherence:       float
@@ -75,19 +62,43 @@ class ConversationResult:
 
 
 class ConversationEval:
-    """
-    Evaluates multi-turn conversations against quality criteria.
 
-    Unique features vs single-turn eval:
-    - Goal resolution: did the conversation actually solve the user's problem?
-    - Coherence checking: are responses consistent within the conversation?
-    - Per-turn scoring: find exactly which turn went wrong
-    - Context awareness: judge considers full conversation history per turn
-    """
-
-    def __init__(self, tm: "TraceMind", threshold: float = 7.0):
+    def __init__(self, tm: "TraceMind", threshold: float = 7.0, chat_fn: Optional[Callable] = None):
         self._tm        = tm
         self._threshold = threshold
+        self._chat_fn   = chat_fn or self._default_chat_fn
+
+    def _default_chat_fn(self, messages, system, model, max_tokens, json_mode):
+        """
+        Default judge caller — requires ANTHROPIC_API_KEY or OPENAI_API_KEY
+        in the environment where the SDK runs, since conversation eval
+        needs to make its own judge calls client-side.
+        """
+        import os
+        if os.getenv("ANTHROPIC_API_KEY"):
+            import anthropic
+            client = anthropic.Anthropic()
+            resp = client.messages.create(
+                model=model if model not in ("smart", "fast") else "claude-haiku-4-5-20251001",
+                max_tokens=max_tokens,
+                system=system,
+                messages=messages,
+            )
+            return resp.content[0].text if resp.content else ""
+        elif os.getenv("OPENAI_API_KEY"):
+            import openai
+            client = openai.OpenAI()
+            resp = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "system", "content": system}] + messages,
+                max_tokens=max_tokens,
+            )
+            return resp.choices[0].message.content or ""
+        else:
+            raise RuntimeError(
+                "ConversationEval needs a judge model. Set ANTHROPIC_API_KEY or "
+                "OPENAI_API_KEY, or pass chat_fn explicitly to ConversationEval()."
+            )
 
     async def run(
         self,
@@ -97,20 +108,6 @@ class ConversationEval:
         context:         str = "",
         fast_mode:       bool = False,
     ) -> ConversationResult:
-        """
-        Evaluate a complete multi-turn conversation.
-
-        Args:
-            conversation:     List of {"role": "user"|"assistant", "content": "..."}
-            criteria:         What to score each turn on
-            expected_outcome: What a successful conversation should achieve
-            context:          Background info (company info, policies, etc.)
-            fast_mode:        Use faster/cheaper model
-
-        Returns:
-            ConversationResult with per-turn scores and goal resolution
-        """
-        from .client import _chat_sync
 
         t0              = time.time()
         conv_id         = str(uuid.uuid4())[:8]
@@ -130,12 +127,10 @@ class ConversationEval:
                 reasoning       = "No assistant turns found",
             )
 
-        # Score each assistant turn in parallel
         semaphore = asyncio.Semaphore(3)
 
         async def score_turn(turn_idx: int, msg: dict) -> TurnScore:
             async with semaphore:
-                # Build conversation up to this turn for context
                 context_so_far = conversation[:turn_idx + 1]
                 conv_text = "\n".join(
                     f"{m['role'].upper()}: {m['content']}"
@@ -164,7 +159,7 @@ Return ONLY valid JSON:
                 loop = asyncio.get_running_loop()
                 raw  = await loop.run_in_executor(
                     None,
-                    lambda: _chat_sync(
+                    lambda: self._chat_fn(
                         messages   = [{"role": "user", "content": prompt}],
                         system     = "You are a conversation quality judge. Be strict. Return only JSON.",
                         model      = "fast" if fast_mode else "smart",
@@ -198,7 +193,6 @@ Return ONLY valid JSON:
             *[score_turn(i, msg) for i, msg in assistant_turns]
         )
 
-        # Goal resolution check
         conv_text = "\n".join(
             f"{m['role'].upper()}: {m['content']}"
             for m in conversation
@@ -223,7 +217,7 @@ Return ONLY valid JSON:
         loop = asyncio.get_running_loop()
         resolution_raw = await loop.run_in_executor(
             None,
-            lambda: _chat_sync(
+            lambda: self._chat_fn(
                 messages   = [{"role": "user", "content": resolution_prompt}],
                 system     = "You are a conversation evaluator. Return only JSON.",
                 model      = "smart",
@@ -266,19 +260,6 @@ Return ONLY valid JSON:
         criteria:      list[str],
         max_concurrent: int = 2,
     ) -> dict:
-        """
-        Run conversation eval on multiple conversations.
-
-        Args:
-            conversations: List of {
-                "conversation": [...turns],
-                "expected_outcome": "...",
-                "context": "..."
-            }
-
-        Returns:
-            Summary with resolution rate, avg scores, per-conversation results
-        """
         semaphore = asyncio.Semaphore(max_concurrent)
 
         async def run_one(item: dict) -> ConversationResult:
