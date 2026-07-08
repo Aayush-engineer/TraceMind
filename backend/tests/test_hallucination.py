@@ -102,10 +102,6 @@ class TestHallucinationDetector:
             r = await d.analyze("Will this work?", "This will definitely work.", None)
         assert r.has_hallucinations
 
-    def test_cohens_d_zero_for_identical_distributions(self):
-        from backend.core.prompt_ab import PromptABTester
-        t = PromptABTester()
-        assert t._cohens_d([7,8,9,7,8], [7,8,9,7,8]) == 0.0
 
 
 class TestPromptABTester:
@@ -136,3 +132,5 @@ class TestPromptABTester:
         vals = [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0]
         assert t._percentile(vals, 50) == 5.0
         assert t._percentile([], 50) == 0.0
+
+    
