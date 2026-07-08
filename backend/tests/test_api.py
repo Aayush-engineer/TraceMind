@@ -1,18 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
 
-
-@pytest.fixture
-def client():
-    from fastapi.testclient import TestClient
-    from backend.main import app
-    return TestClient(app, raise_server_exceptions=False)
-
-
-# ══════════════════════════════════════════════════
-# Health — 3 tests
-# ══════════════════════════════════════════════════
-
 class TestHealth:
 
     def test_returns_200(self, client):
@@ -24,10 +12,6 @@ class TestHealth:
     def test_returns_version_field(self, client):
         assert "version" in client.get("/health").json()
 
-
-# ══════════════════════════════════════════════════
-# Authentication — 7 tests
-# ══════════════════════════════════════════════════
 
 class TestAuthentication:
 
@@ -58,15 +42,10 @@ class TestAuthentication:
         assert "Authorization" in r.json()["detail"] or "header" in r.json()["detail"].lower()
 
     def test_project_creation_is_public_no_auth_needed(self, client):
-        """POST /api/projects must work without auth for bootstrapping."""
+        import uuid
         r = client.post("/api/projects",
-                        json={"name": "__test_public__", "description": "test"})
+                        json={"name": f"__test_public__{uuid.uuid4().hex[:6]}", "description": "test"})
         assert r.status_code not in (401, 403)
-
-
-# ══════════════════════════════════════════════════
-# Traces — 3 tests
-# ══════════════════════════════════════════════════
 
 class TestTraces:
 
@@ -80,10 +59,6 @@ class TestTraces:
     def test_project_spans_without_auth_returns_401(self, client):
         assert client.get("/api/traces/project/some-id").status_code == 401
 
-
-# ══════════════════════════════════════════════════
-# Evals — 4 tests
-# ══════════════════════════════════════════════════
 
 class TestEvals:
 
@@ -103,10 +78,6 @@ class TestEvals:
                        headers={"Authorization": "Bearer bad_key"})
         assert r.status_code in (401, 404)
 
-
-# ══════════════════════════════════════════════════
-# Datasets — 4 tests
-# ══════════════════════════════════════════════════
 
 class TestDatasets:
 
