@@ -40,43 +40,48 @@ async def create_project(req: CreateProjectRequest, db: AsyncSession = Depends(g
     }
 
 
-@router.get("", dependencies=[Depends(get_current_project)])
-async def list_projects(db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Project).order_by(Project.created_at.desc()))
-    projects = result.scalars().all()
+@router.get("")
+async def list_projects(
+    project: Project = Depends(get_current_project),
+    db: AsyncSession = Depends(get_db),
+):
     return {
         "projects": [
             {
-                "id":          p.id,
-                "name":        p.name,
-                "description": p.description,
-                "created_at":  p.created_at.isoformat() if p.created_at else None
+                "id":          project.id,
+                "name":        project.name,
+                "description": project.description,
+                "created_at":  project.created_at.isoformat() if project.created_at else None,
             }
-            for p in projects
         ]
     }
 
 
-@router.get("/{project_id}", dependencies=[Depends(get_current_project)])
-async def get_project(project_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalar_one_or_none()
-    if not project:
+@router.get("/{project_id}")
+async def get_project(
+    project_id: str,
+    project:    Project = Depends(get_current_project),
+    db:         AsyncSession = Depends(get_db),
+):
+    if project_id != project.id:
         raise HTTPException(404, "Project not found")
 
     return {
         "id":          project.id,
         "name":        project.name,
         "description": project.description,
-        "created_at":  project.created_at.isoformat() if project.created_at else None
+        "created_at":  project.created_at.isoformat() if project.created_at else None,
     }
 
 
-@router.delete("/{project_id}", dependencies=[Depends(get_current_project)])
-async def delete_project(project_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Project).where(Project.id == project_id))
-    project = result.scalar_one_or_none()
-    if not project:
+@router.delete("/{project_id}")
+async def delete_project(
+    project_id: str,
+    project:    Project = Depends(get_current_project),
+    db:         AsyncSession = Depends(get_db),
+):
+    if project_id != project.id:
         raise HTTPException(404, "Project not found")
+
     await db.delete(project)
     await db.commit()
