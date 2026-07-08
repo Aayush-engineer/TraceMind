@@ -1,32 +1,3 @@
-"""
-core/webhook_delivery.py — Gap 7 fix.
-
-Replaces fire-and-forget _send_alert() with retry queue.
-
-Features:
-- webhook_deliveries table tracks every attempt
-- Exponential backoff: T+0, T+30s, T+5m, T+30m, T+2h
-- Dead-letter after 5 failed attempts
-- GET /api/alerts/{id}/deliveries shows delivery history
-
-The worker calls process_pending_deliveries() every tick.
-
-DB model to add to models.py:
-    class WebhookDelivery(Base):
-        __tablename__ = "webhook_deliveries"
-        id              = Column(String(12), primary_key=True, default=_gen_id)
-        alert_id        = Column(String(12), ForeignKey("alerts.id"), nullable=True)
-        project_id      = Column(String(12), nullable=False)
-        webhook_url     = Column(String(2000), nullable=False)
-        payload_json    = Column(JSON, nullable=False)
-        status          = Column(String(16), default="pending")
-        attempts        = Column(Integer, default=0)
-        last_attempt_at = Column(Float, nullable=True)
-        next_retry_at   = Column(Float, default=time.time)
-        error_detail    = Column(Text, nullable=True)
-        created_at      = Column(Float, default=time.time)
-"""
-
 import time
 import json
 import logging
@@ -36,8 +7,7 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
-# Retry schedule: attempt at these offsets from last failure
-RETRY_DELAYS = [0, 30, 300, 1800, 7200]   # 0s, 30s, 5m, 30m, 2h
+RETRY_DELAYS = [0, 30, 300, 1800, 7200]   
 MAX_ATTEMPTS = len(RETRY_DELAYS)
 
 
@@ -53,10 +23,6 @@ async def enqueue_webhook(
     project_id:   str,
     alert_id:     Optional[str] = None,
 ) -> str:
-    """
-    Enqueue a webhook delivery. Returns delivery ID.
-    The worker picks it up on the next tick.
-    """
     from ..db.models import WebhookDelivery
 
     delivery = WebhookDelivery(
@@ -67,7 +33,7 @@ async def enqueue_webhook(
         payload_json = payload,
         status       = "pending",
         attempts     = 0,
-        next_retry_at= time.time(),   # ready immediately
+        next_retry_at= time.time(),   
         created_at   = time.time(),
     )
     db.add(delivery)
@@ -80,11 +46,6 @@ async def enqueue_webhook(
 
 
 def process_pending_deliveries_sync(db_session) -> int:
-    """
-    Process all webhook deliveries that are due.
-    Called from the background worker every tick.
-    Returns number of deliveries processed.
-    """
     from ..db.models import WebhookDelivery
 
     now = time.time()
@@ -110,7 +71,6 @@ def process_pending_deliveries_sync(db_session) -> int:
 
 
 def _attempt_delivery(db_session, delivery) -> None:
-    """Make one HTTP attempt and update delivery record."""
     from ..db.models import WebhookDelivery
 
     now = time.time()
@@ -149,7 +109,6 @@ def _attempt_delivery(db_session, delivery) -> None:
             )
         else:
             delivery.status = "retrying"
-            # Schedule next attempt using exponential backoff
             delay_idx           = min(delivery.attempts, len(RETRY_DELAYS) - 1)
             delay               = RETRY_DELAYS[delay_idx]
             delivery.next_retry_at = now + delay
