@@ -1,21 +1,3 @@
-"""
-api/eval_templates.py — Gap 5 fix.
-
-GET /api/eval-templates returns curated rubrics for common use cases.
-Companies should not have to define eval criteria from scratch.
-
-Each template includes:
-- name, description, task_type
-- criteria list for the judge
-- dimension weights
-- example dataset entry so developers see immediately what inputs look like
-- recommended threshold
-
-Mount in main.py:
-    from backend.api.eval_templates import router as templates_router
-    app.include_router(templates_router, prefix="/api")
-"""
-
 from fastapi import APIRouter
 
 router = APIRouter(tags=["eval-templates"])
@@ -186,10 +168,6 @@ TEMPLATES = [
 
 @router.get("/eval-templates")
 async def list_eval_templates() -> dict:
-    """
-    Returns all available eval templates.
-    Use these as starting points — do not write criteria from scratch.
-    """
     return {
         "templates": [
             {
@@ -213,7 +191,6 @@ async def list_eval_templates() -> dict:
 
 @router.get("/eval-templates/{template_id}")
 async def get_eval_template(template_id: str) -> dict:
-    """Returns full template including example dataset entry and common failures."""
     for t in TEMPLATES:
         if t["id"] == template_id:
             return t
@@ -223,10 +200,6 @@ async def get_eval_template(template_id: str) -> dict:
 
 @router.get("/eval-templates/{template_id}/example-dataset")
 async def get_template_example_dataset(template_id: str) -> dict:
-    """
-    Returns a ready-to-use dataset payload for this template.
-    POST the result directly to /api/datasets to create a starter dataset.
-    """
     for t in TEMPLATES:
         if t["id"] == template_id:
             return {
