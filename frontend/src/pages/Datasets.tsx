@@ -1,301 +1,231 @@
-import { useEffect, useState, useCallback } from "react"
-import type { AppContext } from "../App";
+// pages/Datasets.tsx
+import { useState, useCallback, memo } from "react"
+import type { AppContext } from "../App"
+import { useApi } from "../hooks/useApi"
+import { apiPost, invalidateCache } from "../lib/api"
+import type { Dataset, Example } from "../lib/types"
 
-interface Dataset {
-  id:            string
-  name:          string
-  description:   string
-  example_count: number
-  created_at:    string
-}
+const ExampleRow = memo(function ExampleRow({ ex }: { ex: Example }) {
+  return (
+    <div style={{
+      padding: "11px 16px",
+      borderBottom: "1px solid rgba(120,180,255,0.04)",
+      display: "flex", alignItems: "flex-start",
+      justifyContent: "space-between", gap: 12,
+    }}>
+      <div style={{ flex: 1 }}>
+        <p style={{ fontSize: "12px", color: "var(--t0)", margin: "0 0 3px", lineHeight: 1.5 }}>
+          {ex.input}
+        </p>
+        {ex.expected && (
+          <p style={{ fontFamily: "var(--f-mono)", fontSize: "9px", color: "var(--t3)", margin: 0 }}>
+            expected: {ex.expected}
+          </p>
+        )}
+      </div>
+      <span className="sig sig-x">{ex.category}</span>
+    </div>
+  )
+})
 
-interface Example {
-  input:    string
-  expected: string
-  criteria: string[]
-  category: string
-}
+const CATEGORIES = ["general","refunds","billing","shipping","safety","support"] as const
 
 export default function Datasets({ projectId, apiKey, apiUrl }: AppContext) {
-  const [datasets,  setDatasets]  = useState<Dataset[]>([])
-  const [selected,  setSelected]  = useState<Dataset | null>(null)
-  const [examples,  setExamples]  = useState<Example[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [showForm,  setShowForm]  = useState(false)
-
-  // New example form state
+  const [selected,    setSelected]    = useState<Dataset | null>(null)
+  const [examples,    setExamples]    = useState<Example[]>([])
+  const [showForm,    setShowForm]    = useState(false)
   const [newInput,    setNewInput]    = useState("")
   const [newExpected, setNewExpected] = useState("")
-  const [newCategory, setNewCategory] = useState("general")
+  const [newCategory, setNewCategory] = useState<typeof CATEGORIES[number]>("general")
   const [saving,      setSaving]      = useState(false)
+  const [exLoading,   setExLoading]   = useState(false)
 
-  const headers = {
-    "Authorization": `Bearer ${apiKey}`,
-    "Content-Type":  "application/json"
-  }
+  const { data, loading, refetch } = useApi<{ datasets: Dataset[] }>(
+    `${apiUrl}/api/datasets`,
+    apiKey,
+    { interval: 60_000 }
+  )
 
-  const fetchDatasets = useCallback(async () => {
-    try {
-      const res  = await fetch(`${apiUrl}/api/datasets`, { headers })
-      const data = await res.json()
-      setDatasets(data.datasets || [])
-    } catch { /* ignore */ }
-    finally { setLoading(false) }
-  }, [projectId, apiKey])
+  const datasets = data?.datasets ?? []
 
-  useEffect(() => { fetchDatasets() }, [fetchDatasets])
-
-  async function loadExamples(ds: Dataset) {
+  const loadExamples = useCallback(async (ds: Dataset) => {
     setSelected(ds)
+    setExLoading(true)
     try {
-      const res  = await fetch(`${apiUrl}/api/datasets/${ds.id}`, { headers })
-      const data = await res.json()
-      setExamples(data.examples || [])
-    } catch { setExamples([]) }
-  }
+      const res = await fetch(`${apiUrl}/api/datasets/${ds.id}`, {
+        headers: { "Authorization": `Bearer ${apiKey}` },
+      })
+      const d = await res.json()
+      setExamples(d.examples || [])
+    } catch {
+      setExamples([])
+    } finally {
+      setExLoading(false)
+    }
+  }, [apiUrl, apiKey])
 
-  async function addExample() {
+  const addExample = useCallback(async () => {
     if (!selected || !newInput.trim()) return
     setSaving(true)
     try {
-      await fetch(`${apiUrl}/api/datasets`, {
-        method: "POST", headers,
-        body: JSON.stringify({
-          name:     selected.name,
-          project:  projectId,
-          examples: [{
-            input:    newInput,
-            expected: newExpected,
-            criteria: ["accurate", "helpful"],
-            category: newCategory
-          }]
-        })
+      await apiPost(`${apiUrl}/api/datasets`, apiKey, {
+        name:     selected.name,
+        project:  projectId,
+        examples: [{ input: newInput, expected: newExpected, criteria: ["accurate","helpful"], category: newCategory }],
       })
-      setNewInput(""); setNewExpected(""); setNewCategory("general")
-      setShowForm(false)
+      invalidateCache("datasets")
+      setNewInput(""); setNewExpected(""); setNewCategory("general"); setShowForm(false)
       await loadExamples(selected)
-      await fetchDatasets()
-    } catch { /* ignore */ }
+      refetch()
+    } catch {/**/ }
     finally { setSaving(false) }
-  }
+  }, [selected, newInput, newExpected, newCategory, apiUrl, apiKey, projectId, loadExamples, refetch])
 
-  async function createDataset() {
+  const createDataset = useCallback(async () => {
     const name = prompt("Dataset name:", "my-dataset-v1")
     if (!name) return
     try {
-      await fetch(`${apiUrl}/api/datasets`, {
-        method: "POST", headers,
-        body: JSON.stringify({ name, project: projectId, examples: [] })
-      })
-      await fetchDatasets()
-    } catch { /* ignore */ }
-  }
+      await apiPost(`${apiUrl}/api/datasets`, apiKey, { name, project: projectId, examples: [] })
+      invalidateCache("datasets")
+      refetch()
+    } catch {/**/ }
+  }, [apiUrl, apiKey, projectId, refetch])
+
+  const toggleForm = useCallback(() => setShowForm(v => !v), [])
+  const closeSelected = useCallback(() => { setSelected(null); setExamples([]) }, [])
 
   return (
-    <div style={{ padding: "20px 24px", color: "#e2e8f0" }}>
-      <div style={{
-        display: "flex", alignItems: "flex-start",
-        justifyContent: "space-between", marginBottom: "20px"
-      }}>
+    <div style={{ padding: "18px 20px" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "16px" }}>
         <div>
-          <h1 style={{ fontSize: "20px", fontWeight: 600, color: "#f1f5f9", margin: "0 0 4px" }}>
+          <h1 style={{ fontFamily: "var(--f-display)", fontSize: "18px", fontWeight: 700, color: "var(--t0)", margin: "0 0 2px" }}>
             Datasets
           </h1>
-          <p style={{ color: "#64748b", fontSize: "13px", margin: 0 }}>
-            Golden test cases for eval runs — click a dataset to manage examples
+          <p style={{ fontFamily: "var(--f-mono)", fontSize: "9px", color: "var(--t3)", letterSpacing: "0.08em" }}>
+            [DAT] GOLDEN TEST CASES FOR EVAL RUNS · {datasets.length} DATASETS
           </p>
         </div>
-        <button onClick={createDataset} style={{
-          padding: "9px 16px", background: "#6366f1",
-          color: "white", border: "none", borderRadius: "7px",
-          fontSize: "13px", fontWeight: 600, cursor: "pointer"
-        }}>
-          + New dataset
-        </button>
+        <button onClick={createDataset} className="btn btn-p">+ NEW DATASET</button>
       </div>
 
-      <div style={{ display: "grid", gridTemplateColumns: selected ? "280px 1fr" : "1fr", gap: "16px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: selected ? "220px 1fr" : "1fr", gap: "12px" }}>
 
         {/* Dataset list */}
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-          {loading ? (
-            <div style={{ color: "#475569", padding: "2rem", textAlign: "center" }}>
-              Loading...
-            </div>
+        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+          {loading && !datasets.length ? (
+            [1,2,3].map(i => <div key={i} className="skeleton" style={{ height: 60 }}/>)
           ) : datasets.length === 0 ? (
-            <div style={{
-              background: "#1e293b", border: "1px solid #334155",
-              borderRadius: "10px", padding: "3rem", textAlign: "center", color: "#475569"
-            }}>
-              <p style={{ fontSize: "32px", margin: "0 0 8px" }}>◫</p>
-              <p style={{ margin: "0 0 16px" }}>No datasets yet</p>
-              <button onClick={createDataset} style={{
-                padding: "8px 16px", background: "#6366f1",
-                color: "white", border: "none", borderRadius: "6px",
-                fontSize: "13px", cursor: "pointer"
-              }}>
-                Create your first dataset
-              </button>
+            <div className="panel">
+              <div className="empty">
+                <span className="empty-glyph">⊟</span>
+                <p className="empty-title">No datasets yet</p>
+                <button onClick={createDataset} className="btn btn-p" style={{ marginTop: 8 }}>CREATE FIRST</button>
+              </div>
             </div>
-          ) : datasets.map(ds => (
-            <div
-              key={ds.id}
-              onClick={() => loadExamples(ds)}
-              style={{
-                background: selected?.id === ds.id ? "#1e3a5f" : "#1e293b",
-                border: `1px solid ${selected?.id === ds.id ? "#6366f1" : "#334155"}`,
-                borderRadius: "10px", padding: "14px 16px",
-                cursor: "pointer", transition: "all 0.15s"
-              }}
-            >
-              <p style={{ fontWeight: 600, fontSize: "13px",
-                          color: "#f1f5f9", margin: "0 0 4px" }}>
-                {ds.name}
-              </p>
-              <p style={{ fontSize: "12px", color: "#475569", margin: 0 }}>
-                {ds.example_count} examples
-                {ds.created_at && ` · ${new Date(ds.created_at).toLocaleDateString()}`}
-              </p>
-            </div>
-          ))}
+          ) : datasets.map((ds, i) => {
+            const isSel = selected?.id === ds.id
+            return (
+              <div
+                key={ds.id}
+                onClick={() => loadExamples(ds)}
+                className="panel"
+                style={{
+                  padding: "12px 14px",
+                  cursor: "pointer",
+                  background: isSel ? "var(--overlay)" : "var(--surface)",
+                  borderColor: isSel ? "var(--pb)" : "var(--b1)",
+                  transition: "all var(--t-fast)",
+                  animation: `fadeUp 0.25s ${i * 0.04}s var(--ease) both`,
+                }}
+                onMouseEnter={e => { if (!isSel) { (e.currentTarget as HTMLElement).style.background = "var(--raised)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--b2)" } }}
+                onMouseLeave={e => { if (!isSel) { (e.currentTarget as HTMLElement).style.background = "var(--surface)"; (e.currentTarget as HTMLElement).style.borderColor = "var(--b1)" } }}
+              >
+                <div className="panel-accent"/>
+                <p style={{ fontFamily: "var(--f-mono)", fontSize: "11px", fontWeight: 700, color: "var(--t0)", margin: "0 0 4px" }}>
+                  {ds.name}
+                </p>
+                <p style={{ fontFamily: "var(--f-mono)", fontSize: "9px", color: "var(--t3)", margin: 0 }}>
+                  {ds.example_count} examples
+                  {ds.created_at && ` · ${new Date(ds.created_at).toLocaleDateString()}`}
+                </p>
+              </div>
+            )
+          })}
         </div>
 
         {/* Examples panel */}
         {selected && (
-          <div style={{
-            background: "#1e293b", border: "1px solid #334155",
-            borderRadius: "10px", overflow: "hidden"
-          }}>
-            <div style={{
-              padding: "14px 18px", borderBottom: "1px solid #334155",
-              display: "flex", alignItems: "center", justifyContent: "space-between"
-            }}>
-              <div>
-                <h3 style={{ fontSize: "14px", fontWeight: 600,
-                             color: "#f1f5f9", margin: "0 0 2px" }}>
-                  {selected.name}
-                </h3>
-                <p style={{ fontSize: "12px", color: "#475569", margin: 0 }}>
-                  {examples.length} test cases
-                </p>
+          <div className="panel" style={{ padding: 0 }}>
+            <div className="panel-accent"/>
+            <div className="panel-header">
+              <div style={{ display: "flex", alignItems: "center", gap: "10px" }}>
+                <span className="panel-label">{selected.name}</span>
+                <span style={{ fontFamily: "var(--f-mono)", fontSize: "8px", color: "var(--t3)" }}>
+                  {examples.length} CASES
+                </span>
               </div>
-              <button
-                onClick={() => setShowForm(!showForm)}
-                style={{
-                  padding: "7px 14px", background: showForm ? "#334155" : "#6366f1",
-                  color: "white", border: "none", borderRadius: "6px",
-                  fontSize: "12px", fontWeight: 600, cursor: "pointer"
-                }}>
-                {showForm ? "Cancel" : "+ Add example"}
-              </button>
+              <div style={{ display: "flex", gap: "6px" }}>
+                <button onClick={toggleForm} className={`btn ${showForm ? "btn-ghost" : "btn-p"}`} style={{ padding: "5px 12px" }}>
+                  {showForm ? "CANCEL" : "+ ADD"}
+                </button>
+                <button onClick={closeSelected} className="btn btn-ghost" style={{ padding: "5px 8px" }}>✕</button>
+              </div>
             </div>
 
-            {/* Add example form */}
+            {/* Add form */}
             {showForm && (
-              <div style={{
-                padding: "16px 18px", borderBottom: "1px solid #334155",
-                background: "#0f172a"
-              }}>
-                <div style={{ marginBottom: "10px" }}>
-                  <label style={{ fontSize: "11px", color: "#64748b",
-                                  display: "block", marginBottom: "4px",
-                                  textTransform: "uppercase" }}>
-                    Input (user message) *
-                  </label>
+              <div style={{ padding: "14px 16px", borderBottom: "1px solid var(--b1)", background: "var(--base)", display: "flex", flexDirection: "column", gap: "10px" }}>
+                <div>
+                  <label className="label">INPUT (USER MESSAGE) *</label>
                   <textarea
                     value={newInput}
                     onChange={e => setNewInput(e.target.value)}
                     placeholder="What should the AI be asked?"
                     rows={2}
-                    style={{
-                      width: "100%", padding: "8px 10px", borderRadius: "6px",
-                      border: "1px solid #334155", background: "#1e293b",
-                      color: "#e2e8f0", fontSize: "12px", resize: "vertical",
-                      boxSizing: "border-box"
-                    }}
+                    className="field"
                   />
                 </div>
-                <div style={{ marginBottom: "10px" }}>
-                  <label style={{ fontSize: "11px", color: "#64748b",
-                                  display: "block", marginBottom: "4px",
-                                  textTransform: "uppercase" }}>
-                    Expected behavior
-                  </label>
+                <div>
+                  <label className="label">EXPECTED BEHAVIOR</label>
                   <input
                     value={newExpected}
                     onChange={e => setNewExpected(e.target.value)}
                     placeholder="What should a good response do?"
-                    style={{
-                      width: "100%", padding: "8px 10px", borderRadius: "6px",
-                      border: "1px solid #334155", background: "#1e293b",
-                      color: "#e2e8f0", fontSize: "12px", boxSizing: "border-box"
-                    }}
+                    className="field"
                   />
                 </div>
-                <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
                   <select
                     value={newCategory}
-                    onChange={e => setNewCategory(e.target.value)}
-                    style={{
-                      padding: "7px 10px", borderRadius: "6px",
-                      border: "1px solid #334155", background: "#1e293b",
-                      color: "#e2e8f0", fontSize: "12px"
-                    }}
+                    onChange={e => setNewCategory(e.target.value as typeof CATEGORIES[number])}
+                    className="field"
+                    style={{ width: "auto" }}
                   >
-                    {["general","refunds","billing","shipping","safety","support"].map(c => (
-                      <option key={c} value={c}>{c}</option>
-                    ))}
+                    {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                   </select>
                   <button
                     onClick={addExample}
                     disabled={saving || !newInput.trim()}
-                    style={{
-                      padding: "7px 16px", background: "#10b981",
-                      color: "white", border: "none", borderRadius: "6px",
-                      fontSize: "12px", fontWeight: 600, cursor: "pointer",
-                      opacity: saving || !newInput.trim() ? 0.5 : 1
-                    }}>
-                    {saving ? "Saving..." : "Save example"}
+                    className="btn btn-p"
+                  >
+                    {saving ? "SAVING…" : "SAVE"}
                   </button>
                 </div>
               </div>
             )}
 
             {/* Examples list */}
-            <div style={{ maxHeight: "500px", overflowY: "auto" }}>
-              {examples.length === 0 ? (
-                <div style={{ padding: "3rem", textAlign: "center", color: "#475569" }}>
-                  No examples yet — add your first test case above
+            <div style={{ maxHeight: "460px", overflowY: "auto" }}>
+              {exLoading ? (
+                <div style={{ padding: "2rem", display: "flex", justifyContent: "center" }}>
+                  <div className="animate-spin" style={{ width: 22, height: 22, border: "2px solid var(--b2)", borderTop: "2px solid var(--p0)", borderRadius: "50%" }}/>
                 </div>
-              ) : examples.map((ex, i) => (
-                <div key={i} style={{
-                  padding: "12px 18px",
-                  borderBottom: "1px solid #1e3a5f"
-                }}>
-                  <div style={{ display: "flex", alignItems: "flex-start",
-                                justifyContent: "space-between", gap: "12px" }}>
-                    <div style={{ flex: 1 }}>
-                      <p style={{ fontSize: "13px", color: "#e2e8f0",
-                                  margin: "0 0 4px", lineHeight: 1.4 }}>
-                        {ex.input}
-                      </p>
-                      {ex.expected && (
-                        <p style={{ fontSize: "11px", color: "#475569",
-                                    margin: 0, lineHeight: 1.4 }}>
-                          Expected: {ex.expected}
-                        </p>
-                      )}
-                    </div>
-                    <span style={{
-                      padding: "2px 8px", borderRadius: "99px",
-                      fontSize: "10px", background: "#0f172a",
-                      color: "#64748b", flexShrink: 0
-                    }}>
-                      {ex.category}
-                    </span>
-                  </div>
+              ) : examples.length === 0 ? (
+                <div className="empty">
+                  <p className="empty-title">No examples yet</p>
+                  <p className="empty-sub">Add test cases above</p>
                 </div>
-              ))}
+              ) : examples.map((ex, i) => <ExampleRow key={i} ex={ex}/>)}
             </div>
           </div>
         )}
