@@ -1,27 +1,25 @@
-import { useState, useEffect } from "react"
+import { useState, useEffect, lazy, Suspense } from "react"
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom"
-import Dashboard from "./pages/Dashboard"
-import Traces    from "./pages/Traces"
-import Evals     from "./pages/Evals"
-import Datasets  from "./pages/Datasets"
-import Layout    from "./components/Layout"
+import Layout            from "./components/Layout"
 import { ToastProvider } from "./components/Toast"
-import ErrorBoundary from "./components/ErrorBoundary"
-import Live          from "./pages/Live"
-import Playground    from "./pages/Playground"
-import Hallucination from "./pages/Hallucination"
+import ErrorBoundary     from "./components/ErrorBoundary"
+import "./index.css"
 
-// const API_URL = import.meta.env.VITE_API_URL;
+// ─── Lazy-load every page — only parsed when first visited ───────────────────
+const Dashboard     = lazy(() => import("./pages/Dashboard"))
+const Traces        = lazy(() => import("./pages/Traces"))
+const Evals         = lazy(() => import("./pages/Evals"))
+const Datasets      = lazy(() => import("./pages/Datasets"))
+const Live          = lazy(() => import("./pages/Live"))
+const Playground    = lazy(() => import("./pages/Playground"))
+const Hallucination = lazy(() => import("./pages/Hallucination"))
 
-const API_URL = 'http://localhost:8000';
-
-
-
-console.log("API URL:", import.meta.env.VITE_API_URL);
-
-if (!API_URL) {
-  throw new Error("VITE_API_URL is not defined");
-}
+// ─── Env var — MUST be set in Vercel project settings ───────────────────────
+// Vite replaces import.meta.env.* at build time.
+// If VITE_API_URL is not defined the build will still succeed because we
+// provide a fallback, but the deployed app won't reach a real backend.
+const API_URL: string =
+  (import.meta.env.VITE_API_URL as string | undefined) ?? "http://localhost:8000"
 
 export interface AppContext {
   projectId: string
@@ -29,249 +27,280 @@ export interface AppContext {
   apiUrl:    string
 }
 
-function Login({ onLogin }: { onLogin: (pid: string, key: string) => void }) {
+// ─── Page skeleton shown while a lazy chunk loads ────────────────────────────
+function PageFallback() {
+  return (
+    <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "10px" }}>
+      {[90, 140, 200].map((h, i) => (
+        <div key={i} className="skeleton" style={{ height: h }}/>
+      ))}
+    </div>
+  )
+}
+
+// ─── Login screen ────────────────────────────────────────────────────────────
+interface LoginProps {
+  onLogin: (projectId: string, apiKey: string) => void
+}
+
+function Login({ onLogin }: LoginProps) {
   const [projectId, setProjectId] = useState("")
   const [apiKey,    setApiKey]    = useState("")
-  const [error, setError] = useState<string>("")
+  const [error,     setError]     = useState("")
+  const [loading,   setLoading]   = useState(false)
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault()
     if (!projectId.trim() || !apiKey.trim()) {
-    setError("Both Project ID and API Key are required")
+      setError("Both fields are required")
       return
     }
-    
     if (!apiKey.startsWith("ef_live_")) {
-      setError("API key should start with ef_live_")
+      setError("API key must start with ef_live_")
       return
     }
-
     setError("")
-    localStorage.setItem("ef_api_key",    apiKey)
-    localStorage.setItem("ef_project_id", projectId)
-    onLogin(projectId, apiKey)
+    setLoading(true)
+    setTimeout(() => {
+      localStorage.setItem("ef_api_key",    apiKey)
+      localStorage.setItem("ef_project_id", projectId)
+      onLogin(projectId, apiKey)
+    }, 300)
   }
 
   return (
     <div style={{
       minHeight: "100vh",
-      background: "#060910",
-      display: "flex",
-      alignItems: "center",
-      justifyContent: "center",
-      fontFamily: "'Inter', system-ui, sans-serif",
-      padding: "20px",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      background: "var(--void)", padding: "20px",
+      position: "relative", overflow: "hidden",
     }}>
+      {/* Dot-grid background */}
       <div style={{
-        width: "100%",
-        maxWidth: "380px",
+        position: "absolute", inset: 0,
+        backgroundImage: "radial-gradient(circle, rgba(255,255,255,0.02) 1px, transparent 1px)",
+        backgroundSize: "24px 24px",
+        pointerEvents: "none",
+      }}/>
+
+      {/* Corner ticks */}
+      {([
+        { top: 16,    left: 16,   borderTop:    "1px solid var(--pb)", borderLeft:   "1px solid var(--pb)" },
+        { top: 16,    right: 16,  borderTop:    "1px solid var(--pb)", borderRight:  "1px solid var(--pb)" },
+        { bottom: 16, left: 16,   borderBottom: "1px solid var(--pb)", borderLeft:   "1px solid var(--pb)" },
+        { bottom: 16, right: 16,  borderBottom: "1px solid var(--pb)", borderRight:  "1px solid var(--pb)" },
+      ] as React.CSSProperties[]).map((s, i) => (
+        <div key={i} style={{ position: "absolute", ...s, width: 28, height: 28, opacity: 0.35 }}/>
+      ))}
+
+      <div style={{
+        width: "100%", maxWidth: "390px",
+        position: "relative", zIndex: 1,
+        animation: "fadeUp 0.4s var(--ease) forwards",
       }}>
+
         {/* Logo */}
-        <div style={{ textAlign: "center", marginBottom: "32px" }}>
-          <div style={{
-            width: "48px", height: "48px",
-            background: "linear-gradient(135deg, #7c3aed 0%, #a855f7 60%, #06b6d4 100%)",
-            borderRadius: "12px",
-            display: "inline-flex",
-            alignItems: "center",
-            justifyContent: "center",
-            marginBottom: "12px",
-            boxShadow: "0 4px 20px rgba(124,58,237,0.4)",
-          }}>
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
-              <path d="M3 6h18M12 6v12" stroke="white" strokeWidth="2.5" strokeLinecap="round"/>
-              <circle cx="12" cy="18" r="2" fill="white"/>
-            </svg>
+        <div style={{ marginBottom: "32px" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: "14px", marginBottom: "10px" }}>
+            <div style={{ display: "flex", alignItems: "flex-end", gap: "3px", height: "32px", flexShrink: 0 }}>
+              <div style={{ width: "7px", height: "16px", borderRadius: "2px 2px 0 0", background: "var(--p1)", opacity: 0.5 }}/>
+              <div style={{ width: "7px", height: "32px", borderRadius: "2px 2px 0 0", background: "var(--p1)" }}/>
+              <div style={{ width: "7px", height: "22px", borderRadius: "2px 2px 0 0", background: "var(--p1)", opacity: 0.72 }}/>
+            </div>
+            <div>
+              <h1 style={{
+                fontFamily: "var(--f-display)",
+                fontSize: "28px", fontWeight: 800,
+                color: "var(--t0)", margin: 0,
+                letterSpacing: "-0.03em", lineHeight: 1,
+              }}>
+                TraceMind
+              </h1>
+              <p style={{
+                fontFamily: "var(--f-mono)",
+                fontSize: "9px", color: "var(--p3)",
+                margin: "5px 0 0", letterSpacing: "0.22em",
+                textTransform: "uppercase",
+              }}>
+                AI Eval Observatory
+              </p>
+            </div>
           </div>
-          <h1 style={{
-            fontSize: "22px", fontWeight: 700,
-            color: "#e6edf3", margin: "0 0 4px",
-            letterSpacing: "-0.5px",
+
+          <div style={{
+            fontFamily: "var(--f-mono)",
+            fontSize: "10px", color: "var(--t3)",
+            lineHeight: 1.8,
+            borderLeft: "2px solid var(--b2)",
+            paddingLeft: "12px",
           }}>
-            TraceMind
-          </h1>
-          <p style={{ fontSize: "13px", color: "#484f58", margin: 0 }}>
-            AI Quality Observability Platform
-          </p>
+            <div style={{ color: "var(--p3)" }}>[ SYS ] TraceMind v3 — initializing</div>
+            <div>[ NET ] Awaiting authentication credentials…</div>
+          </div>
         </div>
 
         {/* Card */}
         <div style={{
-          background: "#0d1117",
-          border: "1px solid rgba(255,255,255,0.08)",
-          borderRadius: "14px",
-          padding: "24px",
-          boxShadow: "0 8px 40px rgba(0,0,0,0.5)",
+          background: "var(--surface)",
+          border: "1px solid var(--b2)",
+          borderRadius: "var(--r3)",
+          overflow: "hidden",
+          position: "relative",
         }}>
-          {/* Demo banner */}
+          <div className="panel-accent"/>
+
+          {/* Demo autofill */}
           <div
             onClick={() => {
-              setProjectId("63f2c9c3-fe5")
-              setApiKey("ef_live_kg8Jcd3n1RC-VcwZre2sfxg31dPnf4PVx6geH-yRw7k")
+              setProjectId("91f6a5bf-eed")
+              setApiKey("ef_live_qsu6qr-xhtpjgGnafolcj_CkQJ4pGyfwxY-Q2R-Rmu4")
             }}
             style={{
-              background: "rgba(124,58,237,0.1)",
-              border: "1px solid rgba(124,58,237,0.3)",
-              borderRadius: "8px",
-              padding: "10px 14px",
-              marginBottom: "20px",
+              padding: "10px 18px",
+              borderBottom: "1px solid var(--b1)",
+              display: "flex", alignItems: "center", gap: "10px",
               cursor: "pointer",
-              fontSize: "12px",
-              color: "#a78bfa",
-              lineHeight: 1.6,
-              userSelect: "none" as const,
+              background: "rgba(0,230,118,0.03)",
+              transition: "background var(--t-fast)",
             }}
+            onMouseEnter={e => ((e.currentTarget as HTMLElement).style.background = "rgba(0,230,118,0.06)")}
+            onMouseLeave={e => ((e.currentTarget as HTMLElement).style.background = "rgba(0,230,118,0.03)")}
           >
-            <span style={{ color: "#c4b5fd", fontWeight: 600 }}>
-              ↗ Try live demo
+            <span className="sig sig-p">DEMO</span>
+            <span style={{ fontSize: "11px", color: "var(--t2)" }}>
+              Click to auto-fill live credentials
             </span>
-            {" — "}click to auto-fill credentials
+            <span style={{ marginLeft: "auto", color: "var(--p3)", fontSize: "12px" }}>→</span>
           </div>
 
-          <div style={{ display: "flex", flexDirection: "column", gap: "14px" }}>
+          <form onSubmit={handleSubmit} style={{ padding: "20px 18px", display: "flex", flexDirection: "column", gap: "14px" }}>
             <div>
-              <label style={{
-                fontSize: "11px", fontWeight: 600,
-                color: "#8b949e", display: "block",
-                marginBottom: "6px", textTransform: "uppercase",
-                letterSpacing: "0.06em",
-              }}>
-                Project ID
-              </label>
+              <label className="label">Project ID</label>
               <input
+                className="field"
                 type="text"
                 value={projectId}
                 onChange={e => setProjectId(e.target.value)}
-                placeholder="8e09f14f-2dc..."
-                style={{
-                  width: "100%", padding: "9px 12px",
-                  background: "#161b22",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  borderRadius: "7px", color: "#e6edf3",
-                  fontSize: "13px", boxSizing: "border-box" as const,
-                  fontFamily: "monospace",
-                }}
+                placeholder="8e09f14f-2dc…"
+                autoComplete="off"
               />
             </div>
 
             <div>
-              <label style={{
-                fontSize: "11px", fontWeight: 600,
-                color: "#8b949e", display: "block",
-                marginBottom: "6px", textTransform: "uppercase",
-                letterSpacing: "0.06em",
-              }}>
-                API Key
-              </label>
+              <label className="label">API Key</label>
               <input
+                className="field"
                 type="password"
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
-                placeholder="ef_live_..."
-                style={{
-                  width: "100%", padding: "9px 12px",
-                  background: "#161b22",
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  borderRadius: "7px", color: "#e6edf3",
-                  fontSize: "13px", boxSizing: "border-box" as const,
-                  fontFamily: "monospace",
-                }}
+                placeholder="ef_live_…"
+                autoComplete="current-password"
               />
             </div>
 
             {error && (
               <div style={{
-                background: "rgba(248,81,73,0.1)",
-                border: "1px solid rgba(248,81,73,0.3)",
-                borderRadius: "7px", padding: "9px 12px",
-                fontSize: "12px", color: "#f85149",
+                padding: "8px 12px",
+                background: "var(--rg)",
+                border: "1px solid var(--rb)",
+                borderRadius: "var(--r1)",
+                fontFamily: "var(--f-mono)",
+                fontSize: "10px",
+                color: "var(--r0)",
+                letterSpacing: "0.04em",
               }}>
-                {error}
+                ✕ {error}
               </div>
             )}
 
             <button
-              onClick={handleSubmit}
-              disabled={!projectId || !apiKey}
-              style={{
-                width: "100%", padding: "10px",
-                background: (!projectId || !apiKey)
-                  ? "rgba(124,58,237,0.3)"
-                  : "linear-gradient(135deg, #7c3aed, #a855f7)",
-                color: "white", border: "none",
-                borderRadius: "8px", fontSize: "14px",
-                fontWeight: 600, cursor: (!projectId || !apiKey) ? "not-allowed" : "pointer",
-                boxShadow: (!projectId || !apiKey) ? "none" : "0 2px 12px rgba(124,58,237,0.4)",
-                marginTop: "4px",
-              }}
+              type="submit"
+              disabled={loading || !projectId || !apiKey}
+              className="btn btn-p"
+              style={{ width: "100%", justifyContent: "center", padding: "11px", fontSize: "11px" }}
             >
-              Open Dashboard →
+              {loading ? "AUTHENTICATING…" : "AUTHENTICATE →"}
             </button>
-          </div>
+          </form>
 
-          <p style={{
-            fontSize: "11px", color: "#30363d",
-            textAlign: "center", margin: "16px 0 0",
+          <div style={{
+            padding: "10px 18px",
+            borderTop: "1px solid var(--b1)",
+            display: "flex", justifyContent: "center", gap: "20px",
           }}>
-            No account needed · Self-hosted · Free forever
-          </p>
+            {[
+              { label: "GitHub ↗",  href: "https://github.com/Aayush-engineer/tracemind" },
+              { label: "API Docs ↗", href: "https://tracemind.onrender.com/docs" },
+            ].map(l => (
+              <a
+                key={l.label}
+                href={l.href}
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  fontFamily: "var(--f-mono)",
+                  fontSize: "9px", color: "var(--t3)",
+                  textDecoration: "none",
+                  letterSpacing: "0.08em", textTransform: "uppercase",
+                  transition: "color var(--t-fast)",
+                }}
+                onMouseEnter={e => ((e.currentTarget as HTMLElement).style.color = "var(--p2)")}
+                onMouseLeave={e => ((e.currentTarget as HTMLElement).style.color = "var(--t3)")}
+              >
+                {l.label}
+              </a>
+            ))}
+          </div>
         </div>
 
         <p style={{
-          textAlign: "center", fontSize: "11px",
-          color: "#30363d", marginTop: "20px",
+          textAlign: "center", marginTop: "16px",
+          fontFamily: "var(--f-mono)", fontSize: "9px",
+          color: "var(--t4)", letterSpacing: "0.1em",
         }}>
-          <a
-            href="https://github.com/Aayush-engineer/tracemind"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: "#8b949e", textDecoration: "none" }}
-          >
-            ⭐ Star on GitHub
-          </a>
-          {" · "}
-          <a
-            href="https://tracemind.onrender.com/docs"
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ color: "#8b949e", textDecoration: "none" }}
-          >
-            API Docs
-          </a>
+          SELF-HOSTED · OPEN SOURCE · FREE
         </p>
       </div>
     </div>
   )
 }
 
+// ─── Root ─────────────────────────────────────────────────────────────────────
 export default function App() {
   const [ctx, setCtx] = useState<AppContext | null>(null)
 
   useEffect(() => {
     const key = localStorage.getItem("ef_api_key")
     const pid = localStorage.getItem("ef_project_id")
-    if (key && pid) setCtx({ projectId: pid, apiKey: key, apiUrl: API_URL })
+    if (key && pid) {
+      setCtx({ projectId: pid, apiKey: key, apiUrl: API_URL })
+    }
   }, [])
 
-  if (!ctx) return <Login onLogin={(pid, key) =>
-    setCtx({ projectId: pid, apiKey: key, apiUrl: API_URL })} />
+  if (!ctx) {
+    return (
+      <Login
+        onLogin={(pid, key) =>
+          setCtx({ projectId: pid, apiKey: key, apiUrl: API_URL })
+        }
+      />
+    )
+  }
 
   return (
     <ToastProvider>
       <ErrorBoundary>
         <BrowserRouter>
-          <Layout ctx={ctx} onLogout={() => {
-            localStorage.clear(); setCtx(null)
-          }}>
+          <Layout ctx={ctx} onLogout={() => { localStorage.clear(); setCtx(null) }}>
             <Routes>
-              <Route path="/"         element={<Dashboard {...ctx} />} />
-              <Route path="/traces"   element={<Traces    {...ctx} />} />
-              <Route path="/evals"    element={<Evals     {...ctx} />} />
-              <Route path="/datasets" element={<Datasets  {...ctx} />} />
-              <Route path="*"         element={<Navigate to="/" />} />
-              <Route path="/live"          element={<Live          {...ctx} />} />
-              <Route path="/playground"    element={<Playground    {...ctx} />} />
-              <Route path="/hallucination" element={<Hallucination {...ctx} />} />
+              <Route path="/"              element={<Suspense fallback={<PageFallback/>}><Dashboard     {...ctx}/></Suspense>}/>
+              <Route path="/traces"        element={<Suspense fallback={<PageFallback/>}><Traces        {...ctx}/></Suspense>}/>
+              <Route path="/evals"         element={<Suspense fallback={<PageFallback/>}><Evals         {...ctx}/></Suspense>}/>
+              <Route path="/datasets"      element={<Suspense fallback={<PageFallback/>}><Datasets      {...ctx}/></Suspense>}/>
+              <Route path="/live"          element={<Suspense fallback={<PageFallback/>}><Live          {...ctx}/></Suspense>}/>
+              <Route path="/playground"    element={<Suspense fallback={<PageFallback/>}><Playground    {...ctx}/></Suspense>}/>
+              <Route path="/hallucination" element={<Suspense fallback={<PageFallback/>}><Hallucination {...ctx}/></Suspense>}/>
+              <Route path="*"              element={<Navigate to="/" replace/>}/>
             </Routes>
           </Layout>
         </BrowserRouter>
