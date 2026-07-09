@@ -1,10 +1,23 @@
 <!doctype html>
 <html lang="en">
   <head>
-    <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>frontend</title>
+    <meta charset="UTF-8"/>
+    <!-- DNS prefetch + preconnect for Google Fonts — reduces font load latency -->
+    <link rel="preconnect" href="https://fonts.googleapis.com"/>
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="anonymous"/>
+    <link rel="dns-prefetch" href="https://fonts.googleapis.com"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>TraceMind — AI Eval Observatory</title>
+    <meta name="description" content="Mission control for AI quality. Trace, evaluate, and monitor your LLM applications in real time."/>
+    <!-- Inline critical CSS to avoid FOUC before JS hydrates -->
+    <style>
+      html, body, #root { margin: 0; padding: 0; background: #010204; color: #e8f5ff; min-height: 100vh; }
+      #root:empty::after {
+        content: '';
+        position: fixed; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
