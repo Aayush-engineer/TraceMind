@@ -16,7 +16,7 @@ detector = RegressionDetector()
 
 class EvalWorker:
 
-    POLL_INTERVAL       = 10   
+    POLL_INTERVAL       = 30   
     SCORE_BATCH_SIZE    = 5 
     MAX_RETRIES         = 3    
 
