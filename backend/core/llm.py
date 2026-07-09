@@ -34,26 +34,87 @@ class _Provider(ABC):
     def is_available(self) -> bool: ...
 
 
+class _GroqKeyState:
+    def __init__(self, key: str):
+        self.key = key
+        self.breaker = _CircuitBreaker(max_failures=3, reset_timeout=60.0)
+        self._rate_limited_until: float = 0.0
+
+    @property
+    def is_rate_limited(self) -> bool:
+        return time.time() < self._rate_limited_until
+
+    def mark_rate_limited(self, retry_after: float = 15.0) -> None:
+        self._rate_limited_until = time.time() + retry_after
+
+    @property
+    def is_usable(self) -> bool:
+        return not self.breaker.is_open and not self.is_rate_limited
+
+
 class _GroqProvider(_Provider):
     name = "groq"
+
     def __init__(self) -> None:
-        self._client: Any = None
+        raw_keys = os.getenv("GROQ_API_KEYS", os.getenv("GROQ_API_KEY", ""))
+        keys = [k.strip() for k in raw_keys.split(",") if k.strip()]
+        self._key_states: list[_GroqKeyState] = [_GroqKeyState(k) for k in keys]
+        self._clients: dict[str, Any] = {}
+        self._next_idx = 0
+
     def is_available(self) -> bool:
-        return bool(os.getenv("GROQ_API_KEY"))
-    def _get_client(self):
-        if self._client is None:
+        return len(self._key_states) > 0
+
+    def _get_client(self, key: str):
+        if key not in self._clients:
             import groq
-            self._client = groq.Groq(api_key=os.getenv("GROQ_API_KEY"))
-        return self._client
+            self._clients[key] = groq.Groq(api_key=key)
+        return self._clients[key]
+
+    def _select_key_state(self) -> Optional["_GroqKeyState"]:
+        if not self._key_states:
+            return None
+        n = len(self._key_states)
+        for offset in range(n):
+            idx = (self._next_idx + offset) % n
+            state = self._key_states[idx]
+            if state.is_usable:
+                self._next_idx = (idx + 1) % n
+                return state
+        return None
+
     def complete(self, messages, system, model, max_tokens, json_mode) -> str:
-        client = self._get_client()
+        state = self._select_key_state()
+        if state is None:
+            raise RuntimeError("All Groq API keys are rate-limited or unhealthy")
+
+        client = self._get_client(state.key)
         model_name = MODEL_MAP["groq"].get(model, model)
         all_msgs = ([{"role": "system", "content": system}] + messages) if system else messages
         kwargs: dict = {"model": model_name, "messages": all_msgs, "max_tokens": max_tokens}
         if json_mode:
             kwargs["response_format"] = {"type": "json_object"}
-        resp = client.chat.completions.create(**kwargs)
-        return resp.choices[0].message.content or ""
+
+        try:
+            resp = client.chat.completions.create(**kwargs)
+            state.breaker.record_success()
+            return resp.choices[0].message.content or ""
+        except Exception as exc:
+            status = getattr(getattr(exc, "response", None), "status_code", None)
+            if status == 429:
+                retry_after = 15.0
+                headers = getattr(getattr(exc, "response", None), "headers", {}) or {}
+                if "retry-after" in headers:
+                    try:
+                        retry_after = float(headers["retry-after"])
+                    except ValueError:
+                        pass
+                state.mark_rate_limited(retry_after)
+                logger.info("Groq key ...%s rate-limited, cooling down %.0fs", state.key[-6:], retry_after)
+            else:
+                state.breaker.record_failure()
+                logger.warning("Groq key ...%s failed: %s", state.key[-6:], exc)
+            raise
 
 
 class _OpenAIProvider(_Provider):
@@ -129,7 +190,7 @@ class _CircuitBreaker:
 
 
 class _ProviderChain:
-    MAX_RETRIES = 2
+    MAX_RETRIES = 5
 
     def __init__(self) -> None:
         primary = os.getenv("LLM_PROVIDER", "groq").lower()
@@ -143,7 +204,7 @@ class _ProviderChain:
         logger.info("LLM provider chain: %s", " → ".join(p.name for p in available))
 
     def complete(self, messages: list[dict], system: str = "", model: str = "fast",
-                 max_tokens: int = 500, json_mode: bool = False) -> str:
+                max_tokens: int = 500, json_mode: bool = False) -> str:
         last_error: Optional[Exception] = None
         for provider in self._providers:
             breaker = self._breakers[provider.name]
@@ -156,6 +217,11 @@ class _ProviderChain:
                     return result
                 except Exception as exc:
                     last_error = exc
+                    status = getattr(getattr(exc, "response", None), "status_code", None)
+                    if status == 429 and provider.name == "groq":
+                        # Key-level rate limit already recorded inside _GroqProvider —
+                        # retry immediately, a different key will be selected.
+                        continue
                     breaker.record_failure()
                     logger.warning("Provider %s attempt %d failed: %s", provider.name, attempt + 1, exc)
                     if attempt < self.MAX_RETRIES - 1:

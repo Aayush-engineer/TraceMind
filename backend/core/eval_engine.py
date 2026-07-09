@@ -230,7 +230,10 @@ async def run_eval_parallel(
             task_metrics = r.task_metrics or {},
         )
         for r in results
+        if r.reasoning != "All judge calls failed"   # exclude infra failures from quality metrics
     ]
+
+    judge_infra_failures = sum(1 for r in results if r.reasoning == "All judge calls failed")
 
     agg = aggregate_eval_results(eval_results)
 
@@ -269,6 +272,7 @@ async def run_eval_parallel(
         "passed":            agg["passed"],
         "failed":            agg["failed"],
         "errors":            errors,
+        "judge_infra_failures": judge_infra_failures,
         "ambiguous":         agg["ambiguous"],
         "factual_errors":    agg["factual_errors"],
         "dimension_scores":  agg["dimension_scores"],
