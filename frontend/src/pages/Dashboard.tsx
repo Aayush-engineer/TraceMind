@@ -1,471 +1,308 @@
-import { useEffect, useState, useCallback } from "react"
+// pages/Dashboard.tsx
+import { useMemo, useCallback, memo } from "react"
 import {
-  AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine
+  AreaChart, Area, XAxis, YAxis, CartesianGrid,
+  Tooltip, ResponsiveContainer, ReferenceLine
 } from "recharts"
 import type { AppContext } from "../App"
+import { useApis } from "../hooks/useApi"
+import type { Stats, MetricPoint, Alert, EvalRun, EvalResult } from "../lib/types"
+import { scoreColor } from "../lib/types"
 
-interface Props extends AppContext {}
+// ─── Sub-components memoized to prevent cascade re-renders ───────────────────
 
-interface Stats {
-  avg_score:   number
-  pass_rate:   number
-  total_calls: number
-  cost:        number
-}
+const StatCard = memo(function StatCard({ code, label, value, unit, color, sub }: {
+  code: string; label: string; value: string; unit: string
+  color: string; sub: string
+}) {
+  return (
+    <div className="panel" style={{ padding: "14px 16px" }}>
+      <div className="panel-accent"/>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "10px" }}>
+        <span style={{ fontFamily: "var(--f-mono)", fontSize: "8px", fontWeight: 700, letterSpacing: "0.18em", textTransform: "uppercase", color: "var(--t3)" }}>
+          [{code}] {label}
+        </span>
+      </div>
+      <div style={{ display: "flex", alignItems: "baseline", gap: "4px", marginBottom: "5px" }}>
+        <span style={{ fontFamily: "var(--f-mono)", fontSize: "24px", fontWeight: 700, color, lineHeight: 1, letterSpacing: "-0.03em" }}>
+          {value}
+        </span>
+        {unit && <span style={{ fontFamily: "var(--f-mono)", fontSize: "12px", color: "var(--t3)" }}>{unit}</span>}
+      </div>
+      <p style={{ fontFamily: "var(--f-mono)", fontSize: "9px", color: "var(--t3)", margin: 0, letterSpacing: "0.04em" }}>{sub}</p>
+    </div>
+  )
+})
 
-export default function Dashboard({ projectId, apiKey, apiUrl }: Props) {
-  const [stats,      setStats]      = useState<Stats>({ avg_score:0, pass_rate:0, total_calls:0, cost:0 })
-  const [metrics,    setMetrics]    = useState<any[]>([])
-  const [alerts,     setAlerts]     = useState<any[]>([])
-  const [runs,       setRuns]       = useState<any[]>([])
-  const [categories, setCategories] = useState<any[]>([])
-  const [loading,    setLoading]    = useState(true)
-  const [lastUpdated,setLastUpdated]= useState<Date|null>(null)
-  const [error,      setError]      = useState("")
+const AlertItem = memo(function AlertItem({ alert }: { alert: Alert }) {
+  const color = alert.severity === "critical" || alert.severity === "high"
+    ? "var(--r0)" : alert.severity === "medium" ? "var(--a0)" : "var(--c0)"
+  return (
+    <div style={{
+      padding: "8px 10px",
+      background: "var(--raised)",
+      border: "1px solid var(--b1)",
+      borderLeft: `2px solid ${color}`,
+      borderRadius: "var(--r1)",
+    }}>
+      <div style={{ fontFamily: "var(--f-mono)", fontSize: "8px", fontWeight: 700, color, letterSpacing: "0.1em", textTransform: "uppercase", marginBottom: "3px" }}>
+        {alert.severity?.toUpperCase()} · {alert.type?.replace(/_/g, " ").toUpperCase()}
+      </div>
+      <div style={{ fontSize: "11px", color: "var(--t2)", lineHeight: 1.4 }}>
+        {alert.message?.slice(0, 80)}
+      </div>
+    </div>
+  )
+})
 
-  const headers = { "Authorization": `Bearer ${apiKey}` }
+const RunItem = memo(function RunItem({ run }: { run: EvalRun }) {
+  const pr    = run.pass_rate || 0
+  const color = scoreColor(pr * 10)
+  const circ  = 2 * Math.PI * 13
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", gap: "10px",
+      padding: "9px 10px",
+      background: "var(--raised)",
+      border: "1px solid var(--b1)",
+      borderRadius: "var(--r1)",
+      marginBottom: "5px",
+    }}>
+      <div className="panel-accent"/>
+      <div style={{ position: "relative", width: "34px", height: "34px", flexShrink: 0 }}>
+        <svg viewBox="0 0 34 34" style={{ transform: "rotate(-90deg)", width: "100%", height: "100%" }}>
+          <circle cx="17" cy="17" r="13" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="3.5"/>
+          <circle cx="17" cy="17" r="13" fill="none" stroke={color} strokeWidth="3.5"
+            strokeLinecap="round" strokeDasharray={`${pr * circ} 999`}/>
+        </svg>
+        <div style={{ position: "absolute", inset: 0, display: "flex", alignItems: "center", justifyContent: "center", fontFamily: "var(--f-mono)", fontSize: "7px", fontWeight: 700, color }}>
+          {Math.round(pr * 100)}
+        </div>
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <p style={{ fontFamily: "var(--f-mono)", fontSize: "11px", fontWeight: 700, color: "var(--t0)", margin: "0 0 2px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          {run.name || "unnamed"}
+        </p>
+        <p style={{ fontFamily: "var(--f-mono)", fontSize: "8px", color: "var(--t3)", margin: 0 }}>
+          {run.created_at ? new Date(run.created_at).toLocaleDateString("en-GB", { day: "2-digit", month: "short" }) : "—"}
+        </p>
+      </div>
+      <span className={`sig ${run.status === "completed" ? "sig-p" : run.status === "running" ? "sig-c" : "sig-r"}`}>
+        {run.status?.toUpperCase()}
+      </span>
+    </div>
+  )
+})
 
-  const fetchAll = useCallback(async () => {
-    try {
-      const [sRes, mRes, aRes, rRes] = await Promise.all([
-        fetch(`${apiUrl}/api/metrics/${projectId}/summary`,      { headers }),
-        fetch(`${apiUrl}/api/metrics/${projectId}?hours=24`,     { headers }),
-        fetch(`${apiUrl}/api/alerts/${projectId}?resolved=false`,{ headers }),
-        fetch(`${apiUrl}/api/metrics/${projectId}/evals`,        { headers }),
-      ])
+// ─── Main Dashboard ───────────────────────────────────────────────────────────
+export default function Dashboard({ projectId, apiKey, apiUrl }: AppContext) {
+  const base = `${apiUrl}/api`
 
-      if (!sRes.ok) { setError("Failed to load — check credentials"); setLoading(false); return }
+  // Single parallel fetch — 4 endpoints at once, auto-refresh every 30 s
+  const { data, loading, error, refetch } = useApis<{
+    summary: { avg_score: number; pass_rate: number; total_calls: number; cost: number }
+    metrics: { points: MetricPoint[] }
+    alerts:  { alerts: Alert[] }
+    runs:    { runs: EvalRun[] }
+  }>({
+    summary: `${base}/metrics/${projectId}/summary`,
+    metrics: `${base}/metrics/${projectId}?hours=24`,
+    alerts:  `${base}/alerts/${projectId}?resolved=false`,
+    runs:    `${base}/metrics/${projectId}/evals`,
+  }, apiKey, { interval: 30_000 })
 
-      const [s, m, a, r] = await Promise.all([sRes.json(), mRes.json(), aRes.json(), rRes.json()])
+  // ── Derived state — only recomputed when data changes ──────────────────────
+  const stats = useMemo<Stats>(() => ({
+    avg_score:   Number(data.summary?.avg_score   ?? 0),
+    pass_rate:   Number(data.summary?.pass_rate   ?? 0),
+    total_calls: Number(data.summary?.total_calls ?? 0),
+    cost:        Number(data.summary?.cost        ?? 0),
+  }), [data.summary])
 
-      setStats({
-        avg_score:   Number(s.avg_score   || 0),
-        pass_rate:   Number(s.pass_rate   || 0),
-        total_calls: Number(s.total_calls || 0),
-        cost:        Number(s.cost        || 0),
-      })
-      setMetrics(m.points || [])
-      setAlerts(a.alerts  || [])
-      setRuns(r.runs      || [])
-      setError("")
-      setLastUpdated(new Date())
+  const chartData = useMemo(
+    () => (data.metrics?.points ?? []).filter(p => p.call_count > 0),
+    [data.metrics]
+  )
 
-      // Category data from latest eval
-      if (r.runs?.[0]) {
-        try {
-          const er = await fetch(`${apiUrl}/api/evals/${r.runs[0].run_id}`, { headers })
-          if (er.ok) {
-            const ed = await er.json()
-            const catMap: Record<string, {passed:number,total:number}> = {}
-            ed.results?.forEach((res: any) => {
-              const c = res.category || "general"
-              if (!catMap[c]) catMap[c] = { passed:0, total:0 }
-              catMap[c].total++
-              if (res.passed) catMap[c].passed++
-            })
-            setCategories(
-              Object.entries(catMap)
-                .map(([name, s]) => ({ name, pass_rate: s.total > 0 ? s.passed/s.total : 0, total: s.total }))
-                .sort((a,b) => a.pass_rate - b.pass_rate)
-            )
-          }
-        } catch { /* ignore */ }
-      }
-    } catch { setError("Cannot connect to server") }
-    finally  { setLoading(false) }
-  }, [projectId, apiKey])
+  const alerts = useMemo(() => data.alerts?.alerts ?? [], [data.alerts])
+  const runs   = useMemo(() => data.runs?.runs ?? [],     [data.runs])
 
-  useEffect(() => {
-    fetchAll()
-    const i = setInterval(fetchAll, 30000)
-    return () => clearInterval(i)
-  }, [fetchAll])
+  // Categories derived from first eval run (fetched lazily from run list)
+  const categories = useMemo(() => {
+    const firstRun = runs[0]
+    if (!firstRun?.results) return []
+    const catMap: Record<string, { passed: number; total: number }> = {}
+    firstRun.results.forEach((r: EvalResult) => {
+      const c = r.category || "general"
+      if (!catMap[c]) catMap[c] = { passed: 0, total: 0 }
+      catMap[c].total++
+      if (r.passed) catMap[c].passed++
+    })
+    return Object.entries(catMap)
+      .map(([name, s]) => ({ name, rate: s.total > 0 ? s.passed / s.total : 0, total: s.total }))
+      .sort((a, b) => a.rate - b.rate)
+  }, [runs])
 
-  const sc = (v: number) => v >= 8 ? "var(--green)" : v >= 6 ? "var(--amber)" : "var(--red)"
+  const hPct      = Math.round(stats.pass_rate * 100)
+  const ringColor = scoreColor(stats.pass_rate * 10)
+  const circ      = 2 * Math.PI * 28
 
-  if (loading) return (
-    <div style={{ padding: "24px", display: "flex", flexDirection: "column", gap: "16px" }}>
-      {[100,80,120,60].map((_,i) => (
-        <div key={i} style={{
-          height: "80px", borderRadius: "var(--radius-lg)",
-          background: "linear-gradient(90deg, var(--bg-elevated) 25%, var(--bg-overlay) 50%, var(--bg-elevated) 75%)",
-          backgroundSize: "200% 100%",
-          animation: "shimmer 1.5s infinite",
-        }}/>
-      ))}
+  const statCards = useMemo(() => [
+    { code: "AQI", label: "Avg Quality",  value: stats.avg_score.toFixed(2),              unit: "/ 10", color: scoreColor(stats.avg_score),          sub: stats.avg_score >= 7 ? "above threshold" : "below threshold" },
+    { code: "PAS", label: "Pass Rate",    value: (stats.pass_rate * 100).toFixed(1),       unit: "%",    color: scoreColor(stats.pass_rate * 10),       sub: `${Math.round(stats.pass_rate * stats.total_calls)} of ${stats.total_calls}` },
+    { code: "VOL", label: "Total Calls",  value: stats.total_calls.toLocaleString(),        unit: "",     color: "var(--c0)",                            sub: "last 24 hours" },
+    { code: "CST", label: "Cost (24h)",   value: `$${stats.cost.toFixed(4)}`,               unit: "",     color: "var(--a0)",                            sub: "groq free tier" },
+  ], [stats])
+
+  const tooltipStyle = useMemo(() => ({
+    background: "var(--overlay)", border: "1px solid var(--b2)",
+    borderRadius: "var(--r1)", fontSize: "10px",
+    fontFamily: "Space Mono", color: "var(--t0)",
+    boxShadow: "0 8px 24px rgba(0,0,0,0.6)", padding: "8px 12px",
+  }), [])
+
+  const handleRefetch = useCallback(refetch, [refetch])
+
+  if (loading && !data.summary) return (
+    <div style={{ padding: "20px", display: "flex", flexDirection: "column", gap: "10px" }}>
+      {[90, 140, 200].map((h, i) => <div key={i} className="skeleton" style={{ height: h }}/>)}
     </div>
   )
 
-  const chartData = metrics.filter(m => m.call_count > 0)
-  const healthPct = Math.round(stats.pass_rate * 100)
-
   return (
-    <div style={{ padding: "20px 24px", animation: "fadeIn 0.3s ease" }}>
+    <div style={{ padding: "18px 20px" }}>
 
       {error && (
-        <div style={{
-          background: "var(--red-bg)", border: "1px solid rgba(248,81,73,0.3)",
-          borderRadius: "var(--radius-md)", padding: "10px 14px",
-          color: "var(--red)", fontSize: "13px", marginBottom: "16px"
-        }}>⚠ {error}</div>
+        <div style={{ padding: "9px 14px", marginBottom: "14px", background: "var(--rg)", border: "1px solid var(--rb)", borderRadius: "var(--r1)", color: "var(--r0)", fontFamily: "var(--f-mono)", fontSize: "10px" }}>
+          {error}
+        </div>
       )}
 
-      {/* Hero — health ring + key stats */}
-      <div style={{
-        background: "var(--bg-elevated)",
-        border: "1px solid var(--border-subtle)",
-        borderRadius: "var(--radius-xl)",
-        padding: "20px 24px",
-        marginBottom: "16px",
-        display: "flex",
-        alignItems: "center",
-        gap: "24px",
-        position: "relative",
-        overflow: "hidden",
-      }}>
-        {/* Background glow */}
-        <div style={{
-          position: "absolute", top: "-40px", left: "-40px",
-          width: "200px", height: "200px",
-          background: `radial-gradient(circle, ${stats.pass_rate >= 0.8 ? "rgba(63,185,80,0.06)" : stats.pass_rate >= 0.6 ? "rgba(210,153,34,0.06)" : "rgba(248,81,73,0.06)"} 0%, transparent 70%)`,
-          pointerEvents: "none",
-        }}/>
+      {/* Status bar */}
+      <div className="panel" style={{ padding: "14px 18px", marginBottom: "14px", display: "flex", alignItems: "center", gap: "20px", overflow: "hidden" }}>
+        <div className="panel-accent"/>
 
         {/* Ring */}
-        <div style={{ position: "relative", width: "72px", height: "72px", flexShrink: 0 }}>
-          <svg viewBox="0 0 72 72" style={{ transform: "rotate(-90deg)" }}>
-            <circle cx="36" cy="36" r="30" fill="none"
-                    stroke="var(--bg-overlay)" strokeWidth="6"/>
-            <circle cx="36" cy="36" r="30" fill="none"
-                    stroke={sc(stats.pass_rate * 10)}
-                    strokeWidth="6"
-                    strokeLinecap="round"
-                    strokeDasharray={`${2 * Math.PI * 30}`}
-                    strokeDashoffset={`${2 * Math.PI * 30 * (1 - stats.pass_rate)}`}
-                    style={{ transition: "stroke-dashoffset 1s ease" }}/>
+        <div style={{ position: "relative", width: "70px", height: "70px", flexShrink: 0 }}>
+          <svg viewBox="0 0 70 70" style={{ transform: "rotate(-90deg)", width: "100%", height: "100%" }}>
+            <circle cx="35" cy="35" r="28" fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="5"/>
+            <circle cx="35" cy="35" r="28" fill="none" stroke={ringColor} strokeWidth="5"
+              strokeLinecap="round"
+              strokeDasharray={`${stats.pass_rate * circ} 999`}
+            />
           </svg>
-          <div style={{
-            position: "absolute", inset: 0,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            flexDirection: "column",
-          }}>
-            <span style={{ fontSize: "14px", fontWeight: 700,
-                           color: sc(stats.pass_rate * 10), lineHeight: 1 }}>
-              {healthPct}%
-            </span>
+          <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
+            <span style={{ fontFamily: "var(--f-mono)", fontSize: "14px", fontWeight: 700, color: ringColor, lineHeight: 1 }}>{hPct}%</span>
+            <span style={{ fontFamily: "var(--f-mono)", fontSize: "7px", color: "var(--t3)", marginTop: "2px" }}>PASS</span>
           </div>
         </div>
 
         <div style={{ flex: 1 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: "8px", marginBottom: "4px" }}>
-            <span style={{ fontSize: "16px", fontWeight: 600, color: "var(--text-primary)" }}>
-              {stats.pass_rate >= 0.8 ? "System healthy" :
-               stats.pass_rate >= 0.6 ? "Needs attention" : "Quality degraded"}
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "5px" }}>
+            <span style={{ fontFamily: "var(--f-display)", fontSize: "16px", fontWeight: 700, color: "var(--t0)" }}>
+              {stats.pass_rate >= 0.8 ? "System nominal" : stats.pass_rate >= 0.6 ? "Needs attention" : "Quality degraded"}
             </span>
-            <span style={{
-              fontSize: "10px", fontWeight: 600, padding: "2px 8px",
-              borderRadius: "99px", textTransform: "uppercase",
-              background: stats.pass_rate >= 0.8 ? "var(--green-bg)" :
-                          stats.pass_rate >= 0.6 ? "var(--amber-bg)" : "var(--red-bg)",
-              color: sc(stats.pass_rate * 10),
-              border: `1px solid ${stats.pass_rate >= 0.8 ? "rgba(63,185,80,0.3)" : stats.pass_rate >= 0.6 ? "rgba(210,153,34,0.3)" : "rgba(248,81,73,0.3)"}`,
-            }}>
-              {stats.pass_rate >= 0.8 ? "nominal" : stats.pass_rate >= 0.6 ? "degraded" : "critical"}
+            <span className={`sig ${stats.pass_rate >= 0.8 ? "sig-p" : stats.pass_rate >= 0.6 ? "sig-a" : "sig-r"}`}>
+              {stats.pass_rate >= 0.8 ? "NOMINAL" : stats.pass_rate >= 0.6 ? "DEGRADED" : "CRITICAL"}
             </span>
           </div>
-          <p style={{ fontSize: "13px", color: "var(--text-secondary)", margin: 0 }}>
-            {stats.total_calls.toLocaleString()} calls monitored
-            {" · "}avg score {stats.avg_score.toFixed(1)}/10
-            {" · "}last updated {lastUpdated?.toLocaleTimeString()}
-          </p>
+          <div style={{ display: "flex", gap: "20px" }}>
+            {[
+              { label: "CALLS", value: stats.total_calls.toLocaleString() },
+              { label: "AVG",   value: `${stats.avg_score.toFixed(1)}/10` },
+            ].map(s => (
+              <div key={s.label} style={{ display: "flex", gap: "6px", alignItems: "baseline" }}>
+                <span style={{ fontFamily: "var(--f-mono)", fontSize: "8px", color: "var(--t3)", letterSpacing: "0.1em" }}>{s.label}</span>
+                <span style={{ fontFamily: "var(--f-mono)", fontSize: "11px", color: "var(--t1)" }}>{s.value}</span>
+              </div>
+            ))}
+          </div>
         </div>
 
-        <button
-          onClick={fetchAll}
-          style={{
-            padding: "7px 14px",
-            background: "var(--bg-overlay)",
-            border: "1px solid var(--border-default)",
-            borderRadius: "var(--radius-md)",
-            color: "var(--text-secondary)",
-            fontSize: "12px",
-            cursor: "pointer",
-            transition: "all var(--transition)",
-            flexShrink: 0,
-          }}
-        >
-          ↻ Refresh
+        <button onClick={handleRefetch} className="btn btn-ghost" style={{ padding: "6px 12px", fontSize: "9px", flexShrink: 0 }}>
+          ↻ SYNC
         </button>
       </div>
 
       {/* Stat cards */}
-      <div style={{
-        display: "grid",
-        gridTemplateColumns: "repeat(4, 1fr)",
-        gap: "10px",
-        marginBottom: "16px",
-      }}>
-        {[
-          { label: "Avg quality",   value: stats.avg_score.toFixed(2), unit: "/10",
-            color: sc(stats.avg_score), icon: "◎",
-            sub: stats.avg_score >= 7 ? "Above threshold" : "Below threshold" },
-          { label: "Pass rate",     value: `${(stats.pass_rate*100).toFixed(1)}`, unit: "%",
-            color: sc(stats.pass_rate*10), icon: "✓",
-            sub: `${Math.round(stats.pass_rate*stats.total_calls)} of ${stats.total_calls}` },
-          { label: "Total calls",   value: stats.total_calls.toLocaleString(), unit: "",
-            color: "var(--blue)", icon: "⚡", sub: "Last 24 hours" },
-          { label: "Cost (24h)",    value: `$${stats.cost.toFixed(4)}`, unit: "",
-            color: "var(--purple)", icon: "$", sub: "Groq free tier" },
-        ].map(card => (
-          <div
-            key={card.label}
-            style={{
-              background: "var(--bg-elevated)",
-              border: "1px solid var(--border-subtle)",
-              borderRadius: "var(--radius-lg)",
-              padding: "16px",
-              transition: "border-color var(--transition), transform var(--transition)",
-              cursor: "default",
-              position: "relative",
-              overflow: "hidden",
-            }}
-            onMouseEnter={e => {
-              (e.currentTarget as HTMLElement).style.borderColor = "var(--border-default)"
-              ;(e.currentTarget as HTMLElement).style.transform = "translateY(-1px)"
-            }}
-            onMouseLeave={e => {
-              (e.currentTarget as HTMLElement).style.borderColor = "var(--border-subtle)"
-              ;(e.currentTarget as HTMLElement).style.transform = "none"
-            }}
-          >
-            <div style={{
-              position: "absolute", top: 0, left: 0, right: 0, height: "2px",
-              background: `linear-gradient(90deg, ${card.color}66, transparent)`,
-            }}/>
-            <div style={{
-              display: "flex", alignItems: "center",
-              justifyContent: "space-between", marginBottom: "10px",
-            }}>
-              <span style={{ fontSize: "11px", color: "var(--text-muted)",
-                             textTransform: "uppercase", letterSpacing: "0.06em",
-                             fontWeight: 600 }}>
-                {card.label}
-              </span>
-              <span style={{
-                width: "28px", height: "28px",
-                background: `${card.color}18`,
-                borderRadius: "var(--radius-sm)",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: "12px", color: card.color,
-              }}>{card.icon}</span>
-            </div>
-            <p style={{ fontSize: "22px", fontWeight: 700, color: card.color, margin: "0 0 4px" }}>
-              {card.value}
-              <span style={{ fontSize: "12px", color: "var(--text-muted)",
-                             fontWeight: 400, marginLeft: "3px" }}>{card.unit}</span>
-            </p>
-            <p style={{ fontSize: "11px", color: "var(--text-muted)", margin: 0 }}>
-              {card.sub}
-            </p>
-          </div>
-        ))}
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: "10px", marginBottom: "14px" }}>
+        {statCards.map(c => <StatCard key={c.code} {...c}/>)}
       </div>
 
       {/* Chart + Alerts */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 320px", gap: "12px", marginBottom: "12px" }}>
-
-        {/* Area chart */}
-        <div style={{
-          background: "var(--bg-elevated)",
-          border: "1px solid var(--border-subtle)",
-          borderRadius: "var(--radius-lg)",
-          padding: "18px 20px",
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 280px", gap: "10px", marginBottom: "10px" }}>
+        <div className="panel" style={{ padding: "14px 16px" }}>
+          <div className="panel-accent"/>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: "14px" }}>
             <div>
-              <h2 style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", margin: "0 0 2px" }}>
-                Quality over time
-              </h2>
-              <p style={{ fontSize: "11px", color: "var(--text-muted)", margin: 0 }}>
-                Hourly average — last 24 hours
-              </p>
-            </div>
-            <div style={{ display: "flex", gap: "12px", fontSize: "11px", color: "var(--text-muted)" }}>
-              <span style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                <span style={{ width: "20px", height: "2px", background: "var(--accent-light)", display: "inline-block" }}/>
-                Score
-              </span>
-              <span style={{ display: "flex", alignItems: "center", gap: "5px" }}>
-                <span style={{ width: "16px", height: "1px", background: "var(--red)", display: "inline-block",
-                               borderTop: "1px dashed var(--red)" }}/>
-                Threshold
-              </span>
+              <span className="panel-label">[QOT] Quality over time</span>
+              <p style={{ fontFamily: "var(--f-mono)", fontSize: "9px", color: "var(--t3)", margin: "3px 0 0" }}>hourly avg · last 24h</p>
             </div>
           </div>
-
           {chartData.length === 0 ? (
-            <div style={{ height: "180px", display: "flex", flexDirection: "column",
-                          alignItems: "center", justifyContent: "center", gap: "8px" }}>
-              <span style={{ fontSize: "28px" }}>📊</span>
-              <span style={{ fontSize: "13px", color: "var(--text-muted)" }}>
-                No data — ingest spans to see quality trend
-              </span>
+            <div className="empty" style={{ height: "160px" }}>
+              <span className="empty-glyph">◈</span>
+              <p className="empty-title">No data yet</p>
             </div>
           ) : (
-            <ResponsiveContainer width="100%" height={180}>
-              <AreaChart data={chartData} margin={{ top: 5, right: 5, left: -25, bottom: 0 }}>
+            <ResponsiveContainer width="100%" height={160}>
+              <AreaChart data={chartData} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
                 <defs>
-                  <linearGradient id="scoreGrad" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%"   stopColor="#a78bfa" stopOpacity={0.3}/>
-                    <stop offset="100%" stopColor="#a78bfa" stopOpacity={0.0}/>
+                  <linearGradient id="areaGrad" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%"   stopColor="#00ff88" stopOpacity={0.18}/>
+                    <stop offset="100%" stopColor="#00ff88" stopOpacity={0}/>
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false}/>
-                <XAxis dataKey="hour" tick={{ fontSize: 10, fill: "var(--text-muted)" }}
-                       axisLine={false} tickLine={false}/>
-                <YAxis domain={[0,10]} tick={{ fontSize: 10, fill: "var(--text-muted)" }}
-                       axisLine={false} tickLine={false}/>
-                <Tooltip
-                  contentStyle={{
-                    background: "var(--bg-overlay)", border: "1px solid var(--border-default)",
-                    borderRadius: "8px", fontSize: "12px", color: "var(--text-primary)"
-                  }}
-                  formatter={(v) => [
-                      typeof v === "number" ? v.toFixed(2) : "0.00",
-                      "Avg score"
-                    ]}
-                />
-                <ReferenceLine y={7} stroke="var(--red)" strokeDasharray="4 4" strokeWidth={1}/>
-                <Area type="monotone" dataKey="avg_score"
-                      stroke="#a78bfa" strokeWidth={2}
-                      fill="url(#scoreGrad)"
-                      dot={false} activeDot={{ r: 4, fill: "#a78bfa" }}/>
+                <CartesianGrid strokeDasharray="2 4" stroke="rgba(120,180,255,0.05)" vertical={false}/>
+                <XAxis dataKey="hour" tick={{ fontSize: 8, fill: "var(--t3)", fontFamily: "Space Mono" }} axisLine={false} tickLine={false}/>
+                <YAxis domain={[0, 10]} tick={{ fontSize: 8, fill: "var(--t3)", fontFamily: "Space Mono" }} axisLine={false} tickLine={false}/>
+                <Tooltip contentStyle={tooltipStyle} formatter={(v) => [typeof v === "number" ? v.toFixed(2) : "0.00", "score"]}/>
+                <ReferenceLine y={7} stroke="var(--r0)" strokeDasharray="3 5" strokeWidth={1} strokeOpacity={0.4}/>
+                <Area type="monotone" dataKey="avg_score" stroke="var(--p0)" strokeWidth={1.5} fill="url(#areaGrad)" dot={false} activeDot={{ r: 3, fill: "var(--p0)", stroke: "none" }}/>
               </AreaChart>
             </ResponsiveContainer>
           )}
         </div>
 
-        {/* Alerts */}
-        <div style={{
-          background: "var(--bg-elevated)",
-          border: "1px solid var(--border-subtle)",
-          borderRadius: "var(--radius-lg)",
-          padding: "16px",
-          display: "flex",
-          flexDirection: "column",
-        }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "12px" }}>
-            <h2 style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", margin: 0 }}>
-              Active alerts
-            </h2>
-            {alerts.length > 0 && (
-              <span style={{
-                background: "var(--red-bg)", color: "var(--red)",
-                fontSize: "10px", fontWeight: 700, padding: "2px 7px",
-                borderRadius: "99px", border: "1px solid rgba(248,81,73,0.3)"
-              }}>
-                {alerts.length}
-              </span>
-            )}
+        <div className="panel" style={{ display: "flex", flexDirection: "column" }}>
+          <div className="panel-accent"/>
+          <div className="panel-header">
+            <span className="panel-label">[ALT] Active Alerts</span>
+            {alerts.length > 0 && <span className="sig sig-r">{alerts.length}</span>}
           </div>
-
-          {alerts.length === 0 ? (
-            <div style={{
-              flex: 1, display: "flex", flexDirection: "column",
-              alignItems: "center", justifyContent: "center", gap: "8px",
-              color: "var(--text-muted)", fontSize: "13px"
-            }}>
-              <div style={{
-                width: "36px", height: "36px",
-                background: "var(--green-bg)",
-                borderRadius: "50%",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                fontSize: "16px",
-              }}>✓</div>
-              <span style={{ color: "var(--green)", fontSize: "12px" }}>All metrics healthy</span>
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              {alerts.slice(0,4).map((alert: any) => {
-                const colors: Record<string,string> = {
-                  low:"var(--blue)", medium:"var(--amber)", high:"var(--red)", critical:"var(--red)"
-                }
-                return (
-                  <div key={alert.id} style={{
-                    background: "var(--bg-overlay)",
-                    border: "1px solid var(--border-subtle)",
-                    borderLeft: `3px solid ${colors[alert.severity] || "var(--amber)"}`,
-                    borderRadius: "6px",
-                    padding: "8px 10px",
-                  }}>
-                    <div style={{ fontSize: "11px", fontWeight: 600,
-                                  color: colors[alert.severity], marginBottom: "2px",
-                                  textTransform: "capitalize" }}>
-                      {alert.type?.replace(/_/g," ")}
-                    </div>
-                    <div style={{ fontSize: "11px", color: "var(--text-muted)", lineHeight: 1.4 }}>
-                      {alert.message?.slice(0,80)}
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          )}
+          <div style={{ flex: 1, padding: "10px", display: "flex", flexDirection: "column", gap: "5px" }}>
+            {alerts.length === 0 ? (
+              <div className="empty" style={{ padding: "2rem" }}>
+                <div style={{ width: "34px", height: "34px", background: "var(--pg)", border: "1px solid var(--pb)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", fontSize: "15px", color: "var(--p0)" }}>✓</div>
+                <p style={{ fontFamily: "var(--f-mono)", fontSize: "9px", color: "var(--p3)", letterSpacing: "0.06em" }}>ALL NOMINAL</p>
+              </div>
+            ) : alerts.slice(0, 5).map(a => <AlertItem key={a.id} alert={a}/>)}
+          </div>
         </div>
       </div>
 
-      {/* Category breakdown + Eval runs */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", marginBottom: "12px" }}>
-
-        {/* Category bars */}
+      {/* Categories + Runs */}
+      <div style={{ display: "grid", gridTemplateColumns: categories.length > 0 ? "1fr 1fr" : "1fr", gap: "10px" }}>
         {categories.length > 0 && (
-          <div style={{
-            background: "var(--bg-elevated)",
-            border: "1px solid var(--border-subtle)",
-            borderRadius: "var(--radius-lg)",
-            padding: "16px 20px",
-          }}>
-            <h2 style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", margin: "0 0 4px" }}>
-              Pass rate by category
-            </h2>
-            <p style={{ fontSize: "11px", color: "var(--text-muted)", margin: "0 0 14px" }}>
-              From latest eval run
-            </p>
-            <div style={{ display: "flex", flexDirection: "column", gap: "10px" }}>
+          <div className="panel" style={{ padding: 0 }}>
+            <div className="panel-accent"/>
+            <div className="panel-header">
+              <span className="panel-label">[CAT] Pass Rate by Category</span>
+            </div>
+            <div style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: "10px" }}>
               {categories.map(cat => (
                 <div key={cat.name} style={{ display: "flex", alignItems: "center", gap: "10px" }}>
-                  <span style={{
-                    width: "72px", fontSize: "11px", color: "var(--text-secondary)",
-                    textAlign: "right", flexShrink: 0, textTransform: "capitalize",
-                    fontWeight: 500,
-                  }}>
+                  <span style={{ width: "68px", textAlign: "right", flexShrink: 0, fontFamily: "var(--f-mono)", fontSize: "9px", color: "var(--t2)", textTransform: "capitalize" }}>
                     {cat.name}
                   </span>
-                  <div style={{
-                    flex: 1, height: "6px",
-                    background: "var(--bg-overlay)",
-                    borderRadius: "3px",
-                    overflow: "hidden",
-                  }}>
-                    <div style={{
-                      height: "100%",
-                      width: `${cat.pass_rate * 100}%`,
-                      background: cat.pass_rate >= 0.8 ? "var(--green)" :
-                                  cat.pass_rate >= 0.6 ? "var(--amber)" : "var(--red)",
-                      borderRadius: "3px",
-                      transition: "width 0.8s ease",
-                    }}/>
+                  <div style={{ flex: 1, height: "5px", background: "var(--raised)", borderRadius: "2px", overflow: "hidden" }}>
+                    <div style={{ height: "100%", width: `${cat.rate * 100}%`, background: scoreColor(cat.rate * 10), borderRadius: "2px" }}/>
                   </div>
-                  <span style={{
-                    width: "36px", fontSize: "11px", fontWeight: 700,
-                    color: sc(cat.pass_rate * 10), textAlign: "right",
-                  }}>
-                    {Math.round(cat.pass_rate * 100)}%
+                  <span style={{ width: "32px", textAlign: "right", flexShrink: 0, fontFamily: "var(--f-mono)", fontSize: "10px", fontWeight: 700, color: scoreColor(cat.rate * 10) }}>
+                    {Math.round(cat.rate * 100)}%
                   </span>
-                  <span style={{ fontSize: "10px", color: "var(--text-muted)", width: "44px" }}>
-                    {cat.total} cases
+                  <span style={{ fontFamily: "var(--f-mono)", fontSize: "8px", color: "var(--t3)", width: "32px", flexShrink: 0 }}>
+                    n={cat.total}
                   </span>
                 </div>
               ))}
@@ -473,77 +310,19 @@ export default function Dashboard({ projectId, apiKey, apiUrl }: Props) {
           </div>
         )}
 
-        {/* Eval runs */}
-        <div style={{
-          background: "var(--bg-elevated)",
-          border: "1px solid var(--border-subtle)",
-          borderRadius: "var(--radius-lg)",
-          padding: "16px 20px",
-          gridColumn: categories.length === 0 ? "1 / -1" : undefined,
-        }}>
-          <h2 style={{ fontSize: "13px", fontWeight: 600, color: "var(--text-primary)", margin: "0 0 14px" }}>
-            Recent eval runs
-          </h2>
-          {runs.length === 0 ? (
-            <div style={{ padding: "2rem", textAlign: "center", color: "var(--text-muted)", fontSize: "13px" }}>
-              No eval runs yet
-            </div>
-          ) : (
-            <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
-              {runs.slice(0,5).map((run: any) => (
-                <div key={run.run_id} style={{
-                  display: "flex", alignItems: "center", gap: "10px",
-                  padding: "8px 10px",
-                  background: "var(--bg-overlay)",
-                  borderRadius: "var(--radius-md)",
-                  border: "1px solid var(--border-subtle)",
-                  transition: "border-color var(--transition)",
-                  cursor: "pointer",
-                }}
-                onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = "var(--border-default)"}
-                onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = "var(--border-subtle)"}
-                >
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: "12px", fontWeight: 500,
-                                color: "var(--text-primary)", margin: "0 0 2px",
-                                overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {run.name || "Unnamed run"}
-                    </p>
-                    <p style={{ fontSize: "11px", color: "var(--text-muted)", margin: 0 }}>
-                      {run.created_at ? new Date(run.created_at).toLocaleDateString("en-GB",{day:"2-digit",month:"short"}) : "—"}
-                    </p>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-                    <div style={{ width: "48px", height: "4px", background: "var(--bg-base)", borderRadius: "2px" }}>
-                      <div style={{
-                        height: "100%", borderRadius: "2px",
-                        width: `${(run.pass_rate||0)*100}%`,
-                        background: sc((run.pass_rate||0)*10),
-                      }}/>
-                    </div>
-                    <span style={{ fontSize: "11px", fontWeight: 700,
-                                   color: sc((run.pass_rate||0)*10), width: "32px", textAlign: "right" }}>
-                      {Math.round((run.pass_rate||0)*100)}%
-                    </span>
-                  </div>
-                  <span style={{
-                    padding: "2px 7px", borderRadius: "99px", fontSize: "10px", fontWeight: 600,
-                    background: run.status==="completed" ? "var(--green-bg)" :
-                                run.status==="running"   ? "var(--blue-bg)"  : "var(--red-bg)",
-                    color:      run.status==="completed" ? "var(--green)" :
-                                run.status==="running"   ? "var(--blue)"  : "var(--red)",
-                  }}>
-                    {run.status}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="panel" style={{ padding: 0 }}>
+          <div className="panel-accent"/>
+          <div className="panel-header"><span className="panel-label">[RUN] Recent Eval Runs</span></div>
+          <div style={{ padding: "10px" }}>
+            {runs.length === 0 ? (
+              <div className="empty" style={{ padding: "2rem" }}>
+                <span className="empty-glyph">◆</span>
+                <p className="empty-title">No runs yet</p>
+              </div>
+            ) : runs.slice(0, 5).map(run => <RunItem key={run.run_id} run={run}/>)}
+          </div>
         </div>
       </div>
     </div>
   )
 }
-
-
-
