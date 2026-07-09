@@ -1,42 +1,19 @@
+// components/ErrorBoundary.tsx
 import { Component, type ReactNode } from "react"
-
 interface Props { children: ReactNode }
 interface State { hasError: boolean; error: string }
-
 export default class ErrorBoundary extends Component<Props, State> {
   state = { hasError: false, error: "" }
-
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error: error.message }
-  }
-
+  static getDerivedStateFromError(e: Error) { return { hasError: true, error: e.message } }
   render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{
-          padding: "40px", textAlign: "center",
-          color: "#e2e8f0", fontFamily: "system-ui"
-        }}>
-          <p style={{ fontSize: "32px", margin: "0 0 12px" }}>⚠</p>
-          <p style={{ fontSize: "16px", fontWeight: 600, margin: "0 0 8px" }}>
-            Something went wrong
-          </p>
-          <p style={{ fontSize: "13px", color: "#64748b", margin: "0 0 20px" }}>
-            {this.state.error}
-          </p>
-          <button
-            onClick={() => this.setState({ hasError: false, error: "" })}
-            style={{
-              padding: "8px 16px", background: "#6366f1",
-              color: "white", border: "none", borderRadius: "6px",
-              cursor: "pointer", fontSize: "13px"
-            }}
-          >
-            Try again
-          </button>
-        </div>
-      )
-    }
-    return this.props.children
+    if (!this.state.hasError) return this.props.children
+    return (
+      <div style={{ padding: "60px 40px", textAlign: "center", fontFamily: "var(--f-mono)" }}>
+        <div style={{ display:"inline-flex", width:48, height:48, background:"var(--rg)", border:"1px solid var(--rb)", borderRadius:"var(--r2)", alignItems:"center", justifyContent:"center", fontSize:22, marginBottom:16, color:"var(--r0)" }}>⚠</div>
+        <p style={{ fontSize:14, fontWeight:700, color:"var(--t0)", margin:"0 0 8px", letterSpacing:"0.04em" }}>RUNTIME ERROR</p>
+        <p style={{ fontSize:11, color:"var(--t2)", margin:"0 0 20px" }}>{this.state.error}</p>
+        <button onClick={() => this.setState({ hasError:false, error:"" })} className="btn btn-p">RETRY</button>
+      </div>
+    )
   }
 }
