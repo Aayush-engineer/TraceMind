@@ -1,256 +1,239 @@
-import { useEffect, useState, useRef } from "react"
+// pages/Live.tsx
+import { useEffect, useState, useRef, useCallback, useMemo, memo } from "react"
 import type { AppContext } from "../App"
+import type { Span } from "../lib/types"
+import { scoreColor } from "../lib/types"
 
-interface LiveSpan {
-  span_id:    string
-  name:       string
-  input:      string
-  output:     string
-  score:      number | null
-  status:     string
-  duration_ms: number
-  timestamp:  number
-  has_error:  boolean
-}
+// Memoized span row — only re-renders if the span itself changes
+const SpanRow = memo(function SpanRow({ span, isNew }: { span: Span; isNew: boolean }) {
+  const color = span.has_error ? "var(--r0)" : scoreColor(span.score)
+  return (
+    <div style={{
+      background: "var(--surface)",
+      border: `1px solid ${span.has_error ? "var(--rb)" : "var(--b1)"}`,
+      borderLeft: `2px solid ${color}`,
+      borderRadius: "var(--r1)",
+      padding: "9px 14px",
+      display: "flex", alignItems: "center", gap: "12px",
+      animation: isNew ? "fadeUp 0.22s var(--ease) forwards" : "none",
+    }}>
+      {/* Score box */}
+      <div style={{
+        width: "38px", height: "38px", flexShrink: 0,
+        border: `1px solid ${color}40`,
+        borderRadius: "var(--r1)",
+        background: `${color}0d`,
+        display: "flex", alignItems: "center", justifyContent: "center",
+      }}>
+        <span style={{ fontFamily: "var(--f-mono)", fontSize: "12px", fontWeight: 700, color }}>
+          {span.score !== null ? (+span.score).toFixed(1) : "—"}
+        </span>
+      </div>
+
+      {/* Content */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "7px", marginBottom: "2px" }}>
+          <span style={{ fontFamily: "var(--f-mono)", fontSize: "11px", fontWeight: 700, color: "var(--t0)" }}>
+            {span.name}
+          </span>
+          <span className={`sig ${span.status === "success" ? "sig-p" : "sig-r"}`}>
+            {span.status?.toUpperCase()}
+          </span>
+          {span.has_error && <span className="sig sig-r">ERR</span>}
+          <span style={{ marginLeft: "auto", fontFamily: "var(--f-mono)", fontSize: "8px", color: "var(--t3)", letterSpacing: "0.06em" }}>
+            {new Date(span.timestamp * 1000).toLocaleTimeString("en-US", { hour12: false })} · {span.duration_ms.toFixed(0)}ms
+          </span>
+        </div>
+        <div style={{ fontFamily: "var(--f-mono)", fontSize: "9px", color: "var(--t3)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+          <span style={{ color: "var(--t2)" }}>in: </span>{span.input.slice(0, 70)}
+          {span.output && <><span style={{ color: "var(--t2)", marginLeft: 10 }}>out: </span>{span.output.slice(0, 70)}</>}
+        </div>
+      </div>
+    </div>
+  )
+})
 
 export default function Live({ projectId, apiKey, apiUrl }: AppContext) {
-  const [spans,     setSpans]     = useState<LiveSpan[]>([])
+  const [spans,     setSpans]     = useState<Span[]>([])
   const [connected, setConnected] = useState(false)
   const [paused,    setPaused]    = useState(false)
   const [total,     setTotal]     = useState(0)
-  const pausedRef = useRef(false)
-  const wsRef     = useRef<WebSocket | null>(null)
+  const [newestId,  setNewestId]  = useState<string | null>(null)
 
+  // Refs so closures always see current values without causing re-runs
+  const pausedRef  = useRef(false)
+  const mountedRef = useRef(true)
+  const wsRef      = useRef<WebSocket | null>(null)
+  const seenIds    = useRef(new Set<string>())
+
+  const addSpan = useCallback((span: Span) => {
+    if (pausedRef.current) return
+    const id = span.span_id || span.id
+    if (seenIds.current.has(id)) return
+    seenIds.current.add(id)
+    setSpans(prev => [span, ...prev].slice(0, 100))
+    setTotal(t => t + 1)
+    setNewestId(id)
+  }, [])
+
+  // WebSocket
   useEffect(() => {
+    mountedRef.current = true
+    let reconnectTimer: ReturnType<typeof setTimeout>
+
     function connect() {
+      if (!mountedRef.current) return
       const ws = new WebSocket(`ws://localhost:8000/ws/${projectId}`)
       wsRef.current = ws
 
-      ws.onopen  = () => setConnected(true)
-      ws.onclose = () => { setConnected(false); setTimeout(connect, 3000) }
-      ws.onerror = () => setConnected(false)
-
+      ws.onopen  = () => { if (mountedRef.current) setConnected(true) }
+      ws.onclose = () => {
+        if (!mountedRef.current) return
+        setConnected(false)
+        reconnectTimer = setTimeout(connect, 3000)
+      }
+      ws.onerror = () => { if (mountedRef.current) setConnected(false) }
       ws.onmessage = (e) => {
-        if (pausedRef.current) return
+        if (!mountedRef.current) return
         try {
           const data = JSON.parse(e.data)
-          if (data.type === "new_span") {
-            setSpans(prev => [data.span, ...prev].slice(0, 100))
-            setTotal(t => t + 1)
-          }
-        } catch { /* ignore */ }
+          if (data.type === "new_span") addSpan(data.span)
+        } catch {/**/ }
       }
     }
-    connect()
-    return () => wsRef.current?.close()
-  }, [projectId])
 
-  // Also poll for recent spans every 5s as fallback
+    connect()
+    return () => {
+      mountedRef.current = false
+      clearTimeout(reconnectTimer)
+      wsRef.current?.close()
+    }
+  }, [projectId, addSpan])
+
+  // Polling fallback (fills gaps when WS misses events)
   useEffect(() => {
+    let active = true
+
     async function poll() {
-      if (pausedRef.current) return
+      if (!active || pausedRef.current) return
       try {
-        const r = await fetch(
+        const res = await fetch(
           `${apiUrl}/api/traces/project/${projectId}?limit=20`,
           { headers: { "Authorization": `Bearer ${apiKey}` } }
         )
-        const d = await r.json()
-        if (d.spans?.length > 0) {
-          setSpans(prev => {
-            const existingIds = new Set(prev.map(s => s.span_id))
-            const newSpans    = d.spans.filter((s: LiveSpan) => !existingIds.has(s.span_id))
-            if (newSpans.length === 0) return prev
-            return [...newSpans, ...prev].slice(0, 100)
-          })
-        }
-      } catch { /* ignore */ }
+        const d = await res.json()
+        if (!active) return
+        ;(d.spans || []).forEach((s: Span) => addSpan(s))
+      } catch {/**/ }
     }
-    poll()
-    const interval = setInterval(poll, 5000)
-    return () => clearInterval(interval)
-  }, [projectId, apiKey])
 
-  function togglePause() {
+    poll()
+    const iv = setInterval(poll, 5000)
+    return () => { active = false; clearInterval(iv) }
+  }, [projectId, apiKey, apiUrl, addSpan])
+
+  const togglePause = useCallback(() => {
     pausedRef.current = !pausedRef.current
     setPaused(pausedRef.current)
-  }
+  }, [])
 
-  const scoreColor = (s: number | null) =>
-    s === null ? "#475569" : s >= 8 ? "#10b981" : s >= 6 ? "#f59e0b" : "#ef4444"
+  const clearFeed = useCallback(() => {
+    setSpans([])
+    seenIds.current.clear()
+    setTotal(0)
+  }, [])
 
-  const scoreBg = (s: number | null) =>
-    s === null ? "#1e293b" : s >= 8 ? "#052e16" : s >= 6 ? "#422006" : "#450a0a"
+  // Derived stats — memoized
+  const stats = useMemo(() => {
+    const scored  = spans.filter(s => s.score !== null)
+    const errored = spans.filter(s => s.has_error).length
+    const avg     = scored.length ? scored.reduce((a, s) => a + (s.score || 0), 0) / scored.length : null
+    const pass    = scored.length ? scored.filter(s => (s.score || 0) >= 7).length / scored.length : null
+    return { errored, avg, pass, scored: scored.length }
+  }, [spans])
 
   return (
-    <div style={{ padding: "20px 24px", color: "#e2e8f0", height: "100%" }}>
+    <div style={{ padding: "18px 20px" }}>
       {/* Header */}
-      <div style={{ display: "flex", alignItems: "flex-start",
-                    justifyContent: "space-between", marginBottom: "20px" }}>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: "16px" }}>
         <div>
-          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "4px" }}>
-            <h1 style={{ fontSize: "20px", fontWeight: 600, color: "#f1f5f9", margin: 0 }}>
-              Live traces
+          <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "3px" }}>
+            <h1 style={{ fontFamily: "var(--f-display)", fontSize: "18px", fontWeight: 700, color: "var(--t0)", margin: 0 }}>
+              Live Feed
             </h1>
             <div style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <div style={{
-                width: "8px", height: "8px", borderRadius: "50%",
-                background: connected ? "#10b981" : "#ef4444",
-                boxShadow: connected ? "0 0 0 2px #05150d" : "none",
-                animation: connected ? "pulse 2s infinite" : "none"
-              }}/>
-              <span style={{ fontSize: "12px",
-                             color: connected ? "#10b981" : "#ef4444" }}>
-                {connected ? "Live" : "Reconnecting..."}
+              {connected
+                ? <span className="live-dot"/>
+                : <span style={{ display: "inline-block", width: 6, height: 6, borderRadius: "50%", background: "var(--r0)" }}/>
+              }
+              <span style={{ fontFamily: "var(--f-mono)", fontSize: "9px", letterSpacing: "0.1em", color: connected ? "var(--p2)" : "var(--r0)" }}>
+                {connected ? "CONNECTED" : "RECONNECTING…"}
               </span>
             </div>
           </div>
-          <p style={{ color: "#64748b", fontSize: "13px", margin: 0 }}>
-            Watch LLM calls as they happen — {total} captured this session
+          <p style={{ fontFamily: "var(--f-mono)", fontSize: "9px", color: "var(--t3)", letterSpacing: "0.08em" }}>
+            [LIV] {total} CAPTURED THIS SESSION
           </p>
         </div>
-
-        <div style={{ display: "flex", gap: "8px" }}>
-          <button onClick={togglePause} style={{
-            padding: "8px 16px", borderRadius: "7px",
-            border: "1px solid #334155",
-            background: paused ? "#6366f1" : "transparent",
-            color: paused ? "white" : "#64748b",
-            fontSize: "12px", fontWeight: 600, cursor: "pointer"
-          }}>
-            {paused ? "▶ Resume" : "⏸ Pause"}
+        <div style={{ display: "flex", gap: "6px" }}>
+          <button onClick={togglePause} className={`btn ${paused ? "btn-p" : "btn-ghost"}`}>
+            {paused ? "▶ RESUME" : "⏸ PAUSE"}
           </button>
-          <button onClick={() => setSpans([])} style={{
-            padding: "8px 16px", borderRadius: "7px",
-            border: "1px solid #334155", background: "transparent",
-            color: "#64748b", fontSize: "12px", cursor: "pointer"
-          }}>
-            Clear
-          </button>
+          <button onClick={clearFeed} className="btn btn-ghost">CLEAR</button>
         </div>
       </div>
 
-      <style>{`@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }`}</style>
-
       {/* Stats bar */}
       {spans.length > 0 && (
-        <div style={{
-          display: "flex", gap: "16px", marginBottom: "16px",
-          background: "#1e293b", border: "1px solid #334155",
-          borderRadius: "8px", padding: "10px 16px"
-        }}>
+        <div className="panel" style={{ padding: "10px 16px", marginBottom: "12px", display: "flex", gap: 0 }}>
+          <div className="panel-accent"/>
           {[
-            { label: "Total",  value: spans.length.toString() },
-            { label: "Errors", value: spans.filter(s => s.has_error).length.toString(),
-              color: "#ef4444" },
-            { label: "Avg score",
-              value: (() => {
-                const scored = spans.filter(s => s.score !== null)
-                if (!scored.length) return "—"
-                return (scored.reduce((a,s) => a + (s.score||0), 0) / scored.length).toFixed(1)
-              })(),
-              color: "#10b981"
-            },
-            { label: "Pass rate",
-              value: (() => {
-                const scored = spans.filter(s => s.score !== null)
-                if (!scored.length) return "—"
-                const passed = scored.filter(s => (s.score||0) >= 7).length
-                return `${(passed/scored.length*100).toFixed(0)}%`
-              })()
-            },
-          ].map(stat => (
-            <div key={stat.label}>
-              <span style={{ fontSize: "11px", color: "#64748b" }}>{stat.label}: </span>
-              <span style={{ fontSize: "13px", fontWeight: 600,
-                             color: stat.color || "#e2e8f0" }}>
-                {stat.value}
+            { code: "TOT", label: "Captured",  value: spans.length.toString(),                                  color: "var(--t0)" },
+            { code: "ERR", label: "Errors",     value: stats.errored.toString(),                                 color: stats.errored > 0 ? "var(--r0)" : "var(--t2)" },
+            { code: "AVG", label: "Avg Score",  value: stats.avg !== null ? stats.avg.toFixed(1) : "—",         color: "var(--p0)" },
+            { code: "PSS", label: "Pass Rate",  value: stats.pass !== null ? `${(stats.pass * 100).toFixed(0)}%` : "—", color: "var(--p0)" },
+          ].map((s, i) => (
+            <div key={s.code} style={{
+              flex: 1, padding: "4px 16px",
+              borderRight: i < 3 ? "1px solid var(--b1)" : "none",
+              display: "flex", flexDirection: "column", gap: "2px",
+            }}>
+              <span style={{ fontFamily: "var(--f-mono)", fontSize: "7px", color: "var(--t3)", letterSpacing: "0.16em" }}>
+                [{s.code}] {s.label}
+              </span>
+              <span style={{ fontFamily: "var(--f-mono)", fontSize: "16px", fontWeight: 700, color: s.color, lineHeight: 1 }}>
+                {s.value}
               </span>
             </div>
           ))}
+          {paused && (
+            <div style={{ display: "flex", alignItems: "center", padding: "0 16px", borderLeft: "1px solid var(--b1)" }}>
+              <span className="sig sig-a">PAUSED</span>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Live feed */}
+      {/* Feed */}
       {spans.length === 0 ? (
-        <div style={{
-          background: "#1e293b", border: "1px solid #334155",
-          borderRadius: "10px", padding: "4rem", textAlign: "center"
-        }}>
-          <div style={{ fontSize: "40px", marginBottom: "12px" }}>⚡</div>
-          <p style={{ color: "#f1f5f9", fontWeight: 500, margin: "0 0 6px" }}>
-            Waiting for traces...
-          </p>
-          <p style={{ color: "#64748b", fontSize: "13px", margin: 0 }}>
-            Instrument your app with the SDK and calls will appear here in real time
-          </p>
+        <div className="panel">
+          <div className="panel-accent"/>
+          <div className="empty">
+            <div style={{ width: "48px", height: "48px", border: "1px solid var(--pb)", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center" }}>
+              <span className="live-dot"/>
+            </div>
+            <p className="empty-title">WAITING FOR TRACES…</p>
+            <p className="empty-sub">Instrument your app with the SDK and calls appear here instantly</p>
+          </div>
         </div>
       ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: "6px" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
           {spans.map((span, i) => (
-            <div key={span.span_id} style={{
-              background: "#1e293b",
-              border: `1px solid ${span.has_error ? "#7f1d1d" : "#334155"}`,
-              borderLeft: `3px solid ${
-                span.has_error ? "#ef4444" :
-                scoreColor(span.score)
-              }`,
-              borderRadius: "8px", padding: "10px 14px",
-              animation: i === 0 ? "fadeIn 0.3s ease" : "none",
-              display: "flex", alignItems: "center", gap: "12px"
-            }}>
-              <style>{`@keyframes fadeIn { from{opacity:0;transform:translateY(-4px)} to{opacity:1;transform:none} }`}</style>
-
-              {/* Score badge */}
-              <div style={{
-                width: "40px", height: "40px", borderRadius: "8px",
-                background: scoreBg(span.score),
-                display: "flex", alignItems: "center", justifyContent: "center",
-                flexShrink: 0
-              }}>
-                <span style={{
-                  fontSize: "13px", fontWeight: 700,
-                  color: scoreColor(span.score)
-                }}>
-                  {span.score !== null ? Number(span.score).toFixed(1) : "—"}
-                </span>
-              </div>
-
-              {/* Content */}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: "flex", alignItems: "center",
-                              gap: "8px", marginBottom: "2px" }}>
-                  <span style={{ fontSize: "13px", fontWeight: 500,
-                                 color: "#e2e8f0" }}>
-                    {span.name}
-                  </span>
-                  <span style={{
-                    padding: "1px 6px", borderRadius: "99px", fontSize: "10px",
-                    background: span.status === "success" ? "#052e16" : "#450a0a",
-                    color:      span.status === "success" ? "#4ade80" : "#f87171"
-                  }}>
-                    {span.status}
-                  </span>
-                  <span style={{ fontSize: "11px", color: "#475569",
-                                 marginLeft: "auto" }}>
-                    {new Date(span.timestamp * 1000).toLocaleTimeString()}
-                    {" · "}
-                    {span.duration_ms.toFixed(0)}ms
-                  </span>
-                </div>
-                <div style={{ fontSize: "12px", color: "#64748b",
-                              overflow: "hidden", textOverflow: "ellipsis",
-                              whiteSpace: "nowrap" }}>
-                  <span style={{ color: "#475569" }}>IN: </span>
-                  {span.input.slice(0, 80)}
-                  {span.output && (
-                    <>
-                      <span style={{ color: "#475569", marginLeft: "12px" }}>OUT: </span>
-                      {span.output.slice(0, 80)}
-                    </>
-                  )}
-                </div>
-              </div>
-            </div>
+            <SpanRow
+              key={span.span_id || span.id}
+              span={span}
+              isNew={i === 0 && (span.span_id || span.id) === newestId}
+            />
           ))}
         </div>
       )}
