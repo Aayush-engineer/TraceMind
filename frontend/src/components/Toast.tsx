@@ -1,69 +1,61 @@
-import { useState,createContext, useContext, type ReactNode } from "react"
+// components/Toast.tsx
+import { useState, useCallback, createContext, useContext, useMemo, type ReactNode } from "react"
 
-interface Toast {
-  id:      string
-  message: string
-  type:    "success" | "error" | "info"
-}
+interface Toast { id: string; message: string; type: "success"|"error"|"info" }
+interface ToastCtx { show: (msg: string, type?: Toast["type"]) => void }
 
-interface ToastContextType {
-  show: (message: string, type?: Toast["type"]) => void
-}
+const Ctx = createContext<ToastCtx>({ show: () => {} })
+export const useToast = () => useContext(Ctx)
 
-const ToastContext = createContext<ToastContextType>({ show: () => {} })
-
-export function useToast() {
-  return useContext(ToastContext)
+const CFG = {
+  success: { color: "var(--p0)", border: "var(--pb)", icon: "✓" },
+  error:   { color: "var(--r0)", border: "var(--rb)", icon: "✕" },
+  info:    { color: "var(--c0)", border: "var(--cb)", icon: "ℹ" },
 }
 
 export function ToastProvider({ children }: { children: ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
 
-  function show(message: string, type: Toast["type"] = "success") {
-    const id = Math.random().toString(36).slice(2)
-    setToasts(prev => [...prev, { id, message, type }])
-    setTimeout(() => {
-      setToasts(prev => prev.filter(t => t.id !== id))
-    }, 3500)
-  }
+  // Stable reference — won't cause consumer re-renders
+  const show = useCallback((message: string, type: Toast["type"] = "success") => {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`
+    setToasts(p => [...p, { id, message, type }])
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 3500)
+  }, [])
 
-  const colors = {
-    success: { bg: "#052e16", border: "#166534", color: "#4ade80", icon: "✓" },
-    error:   { bg: "#450a0a", border: "#991b1b", color: "#f87171", icon: "✕" },
-    info:    { bg: "#0c1a4f", border: "#1e3a8a", color: "#93c5fd", icon: "ℹ" },
-  }
+  const value = useMemo(() => ({ show }), [show])
 
   return (
-    <ToastContext.Provider value={{ show }}>
+    <Ctx.Provider value={value}>
       {children}
       <div style={{
-        position: "fixed", bottom: "24px", right: "24px",
-        display: "flex", flexDirection: "column", gap: "8px",
-        zIndex: 9999, pointerEvents: "none"
+        position: "fixed", bottom: 20, right: 20,
+        display: "flex", flexDirection: "column", gap: 6,
+        zIndex: 9999, pointerEvents: "none",
       }}>
-        {toasts.map(toast => {
-          const c = colors[toast.type]
+        {toasts.map(t => {
+          const c = CFG[t.type]
           return (
-            <div key={toast.id} style={{
-              background: c.bg, border: `1px solid ${c.border}`,
-              borderRadius: "8px", padding: "10px 14px",
-              display: "flex", alignItems: "center", gap: "8px",
-              fontSize: "13px", color: c.color,
-              animation: "slideIn 0.2s ease",
-              minWidth: "240px", maxWidth: "360px"
+            <div key={t.id} style={{
+              background: "var(--raised)",
+              border: `1px solid ${c.border}`,
+              borderLeft: `2px solid ${c.color}`,
+              borderRadius: "var(--r1)",
+              padding: "9px 14px",
+              display: "flex", alignItems: "center", gap: 8,
+              fontFamily: "var(--f-mono)",
+              fontSize: 10, color: "var(--t0)",
+              letterSpacing: "0.04em",
+              animation: "fadeUp 0.2s var(--ease) forwards",
+              minWidth: 200, maxWidth: 320,
+              boxShadow: "0 4px 20px rgba(0,0,0,0.6)",
             }}>
-              <span style={{ fontWeight: 700 }}>{c.icon}</span>
-              {toast.message}
+              <span style={{ fontWeight: 700, color: c.color }}>{c.icon}</span>
+              {t.message}
             </div>
           )
         })}
       </div>
-      <style>{`
-        @keyframes slideIn {
-          from { transform: translateX(100%); opacity: 0; }
-          to   { transform: translateX(0);    opacity: 1; }
-        }
-      `}</style>
-    </ToastContext.Provider>
+    </Ctx.Provider>
   )
 }
