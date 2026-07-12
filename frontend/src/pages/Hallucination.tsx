@@ -1,268 +1,134 @@
-import { useState } from "react"
+// pages/Hallucination.tsx
+import { useState, useCallback, useRef, memo } from "react"
 import type { AppContext } from "../App"
+import type { HallucinationResult, HallucinationClaim } from "../lib/types"
+import { riskColor, riskBg, riskBorder, typeColor } from "../lib/types"
+
+const ClaimRow = memo(function ClaimRow({ claim }: { claim: HallucinationClaim }) {
+  const tc = typeColor(claim.type)
+  return (
+    <div style={{ padding: "11px 14px", borderBottom: "1px solid rgba(120,180,255,0.04)", borderLeft: `2px solid ${tc}` }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 7, marginBottom: 5 }}>
+        <span style={{ fontFamily: "var(--f-mono)", fontSize: "8px", fontWeight: 700, padding: "2px 7px", borderRadius: "var(--r0)", color: tc, background: `${tc}14`, border: `1px solid ${tc}30`, letterSpacing: "0.1em", textTransform: "uppercase" as const }}>
+          {claim.type}
+        </span>
+        {claim.risk_level !== "low" && (
+          <span style={{ fontFamily: "var(--f-mono)", fontSize: "8px", fontWeight: 700, padding: "2px 7px", borderRadius: "var(--r0)", color: riskColor(claim.risk_level), background: riskBg(claim.risk_level), border: `1px solid ${riskBorder(claim.risk_level)}`, letterSpacing: "0.1em", textTransform: "uppercase" as const }}>
+            {claim.risk_level}
+          </span>
+        )}
+      </div>
+      <p style={{ fontFamily: "var(--f-data)", fontSize: "12px", color: "var(--t0)", margin: "0 0 4px", lineHeight: 1.5 }}>
+        "{claim.text}"
+      </p>
+      {claim.evidence && (
+        <p style={{ fontFamily: "var(--f-mono)", fontSize: "9px", color: "var(--t3)", margin: 0, borderTop: "1px solid var(--b1)", paddingTop: 5, marginTop: 5 }}>
+          {claim.evidence}
+        </p>
+      )}
+    </div>
+  )
+})
 
 export default function Hallucination({ apiKey, apiUrl }: AppContext) {
   const [question, setQuestion] = useState("")
   const [response, setResponse] = useState("")
   const [context,  setContext]  = useState("")
-  const [result,   setResult]   = useState<any>(null)
+  const [result,   setResult]   = useState<HallucinationResult | null>(null)
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState("")
+  const abortRef = useRef<AbortController | null>(null)
 
-  const headers = {
-    "Authorization": `Bearer ${apiKey}`,
-    "Content-Type":  "application/json"
-  }
-
-  async function check() {
-    if (!question.trim() || !response.trim()) {
-      setError("Question and response are required"); return
-    }
+  const check = useCallback(async () => {
+    if (!question.trim() || !response.trim()) { setError("ERR: question and response required"); return }
+    abortRef.current?.abort()
+    const ctrl = new AbortController()
+    abortRef.current = ctrl
     setLoading(true); setError(""); setResult(null)
-
     try {
-      const r = await fetch(`${apiUrl}/api/hallucination/check`, {
-        method: "POST", headers,
-        body: JSON.stringify({
-          question,
-          response,
-          context:   context || null,
-          fast_mode: false,
-        })
+      const res = await fetch(`${apiUrl}/api/hallucination/check`, {
+        method: "POST", signal: ctrl.signal,
+        headers: { "Authorization": `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({ question, response, context: context || null, fast_mode: false }),
       })
-      if (!r.ok) { setError("Check failed — try again"); return }
-      setResult(await r.json())
+      if (!res.ok) { setError(`ERR: ${res.status} — check failed`); return }
+      setResult(await res.json())
     } catch (e: any) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }
+      if (e.name !== "AbortError") setError(e.message || "ERR: unknown error")
+    } finally { setLoading(false) }
+  }, [question, response, context, apiUrl, apiKey])
 
-  const riskColor = (r: string) => ({
-    low:      "#10b981", medium: "#f59e0b",
-    high:     "#f97316", critical: "#ef4444"
-  })[r] || "#64748b"
-
-  const riskBg = (r: string) => ({
-    low:      "#052e16", medium: "#422006",
-    high:     "#431407", critical: "#450a0a"
-  })[r] || "#1e293b"
-
-  const typeColor = (t: string) => ({
-    none:          "#10b981",
-    factual:       "#ef4444",
-    fabrication:   "#f97316",
-    contradiction: "#a855f7",
-    overconfident: "#f59e0b",
-  })[t] || "#64748b"
+  const clear = useCallback(() => {
+    abortRef.current?.abort()
+    setResult(null); setError(""); setLoading(false)
+    setQuestion(""); setResponse(""); setContext("")
+  }, [])
 
   return (
-    <div style={{ padding: "20px 24px", color: "#e2e8f0" }}>
-      <div style={{ marginBottom: "20px" }}>
-        <h1 style={{ fontSize: "20px", fontWeight: 600, color: "#f1f5f9", margin: "0 0 4px" }}>
-          Hallucination detector
-        </h1>
-        <p style={{ color: "#64748b", fontSize: "13px", margin: 0 }}>
-          Analyze LLM responses for factual errors, fabrications, and overconfident claims
-        </p>
+    <div style={{ padding: "18px 20px" }}>
+      <div style={{ marginBottom: "16px" }}>
+        <h1 style={{ fontFamily: "var(--f-display)", fontSize: "18px", fontWeight: 700, color: "var(--t0)", margin: "0 0 2px" }}>Hallucination Detector</h1>
+        <p style={{ fontFamily: "var(--f-mono)", fontSize: "9px", color: "var(--t3)", letterSpacing: "0.08em" }}>[HAL] ANALYZE LLM RESPONSES FOR FACTUAL ERRORS, FABRICATIONS, OVERCONFIDENT CLAIMS</p>
       </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "16px" }}>
-        {/* Input */}
-        <div style={{
-          background: "#1e293b", border: "1px solid #334155",
-          borderRadius: "10px", padding: "16px",
-          display: "flex", flexDirection: "column", gap: "12px"
-        }}>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
+        <div className="panel" style={{ padding: "14px 16px", display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div className="panel-accent"/>
+          <div><label className="label">QUESTION / PROMPT *</label><textarea value={question} onChange={e => setQuestion(e.target.value)} placeholder="What question was the AI answering?" rows={3} className="field"/></div>
+          <div><label className="label">AI RESPONSE *</label><textarea value={response} onChange={e => setResponse(e.target.value)} placeholder="Paste the AI response to analyze…" rows={5} className="field"/></div>
           <div>
-            <label style={{ fontSize: "11px", color: "#64748b", display: "block",
-                            marginBottom: "5px", textTransform: "uppercase" }}>
-              Question / Prompt *
-            </label>
-            <textarea
-              value={question}
-              onChange={e => setQuestion(e.target.value)}
-              placeholder="What question was the AI answering?"
-              rows={3}
-              style={{
-                width: "100%", padding: "8px 10px", borderRadius: "6px",
-                border: "1px solid #334155", background: "#0f172a",
-                color: "#e2e8f0", fontSize: "13px",
-                resize: "vertical", boxSizing: "border-box"
-              }}
-            />
+            <label className="label" style={{ color: "var(--p3)" }}>GROUND TRUTH CONTEXT <span style={{ color: "var(--t4)", fontWeight: 400, textTransform: "none" as const, letterSpacing: 0, marginLeft: 6 }}>optional — recommended</span></label>
+            <textarea value={context} onChange={e => setContext(e.target.value)} placeholder="Paste source documents or known facts." rows={4} className="field" style={{ borderColor: "var(--pb)" }}/>
           </div>
-
-          <div>
-            <label style={{ fontSize: "11px", color: "#64748b", display: "block",
-                            marginBottom: "5px", textTransform: "uppercase" }}>
-              AI Response *
-            </label>
-            <textarea
-              value={response}
-              onChange={e => setResponse(e.target.value)}
-              placeholder="Paste the AI response to analyze..."
-              rows={5}
-              style={{
-                width: "100%", padding: "8px 10px", borderRadius: "6px",
-                border: "1px solid #334155", background: "#0f172a",
-                color: "#e2e8f0", fontSize: "13px",
-                resize: "vertical", boxSizing: "border-box"
-              }}
-            />
+          {error && <div style={{ padding: "9px 12px", background: "var(--rg)", border: "1px solid var(--rb)", borderRadius: "var(--r1)", fontFamily: "var(--f-mono)", fontSize: "10px", color: "var(--r0)" }}>{error}</div>}
+          <div style={{ display: "flex", gap: "6px" }}>
+            <button onClick={check} disabled={loading} className="btn btn-p" style={{ flex: 1, justifyContent: "center", padding: "11px" }}>
+              {loading ? <><span className="animate-spin" style={{ display: "inline-block", width: 10, height: 10, border: "1.5px solid var(--void)", borderTop: "1.5px solid transparent", borderRadius: "50%" }}/> ANALYZING…</> : "⊛ CHECK FOR HALLUCINATIONS"}
+            </button>
+            {(result || error) && <button onClick={clear} className="btn btn-ghost" style={{ padding: "11px 14px" }}>CLEAR</button>}
           </div>
-
-          <div>
-            <label style={{ fontSize: "11px", color: "#64748b", display: "block",
-                            marginBottom: "5px", textTransform: "uppercase" }}>
-              Ground truth context (optional but recommended)
-            </label>
-            <textarea
-              value={context}
-              onChange={e => setContext(e.target.value)}
-              placeholder="Paste the source documents, database results, or known facts. Without this, only self-consistency is checked."
-              rows={4}
-              style={{
-                width: "100%", padding: "8px 10px", borderRadius: "6px",
-                border: "1px solid #475569", background: "#0f172a",
-                color: "#e2e8f0", fontSize: "13px",
-                resize: "vertical", boxSizing: "border-box"
-              }}
-            />
-          </div>
-
-          {error && (
-            <div style={{
-              background: "#450a0a", borderRadius: "6px",
-              padding: "8px 12px", color: "#f87171", fontSize: "12px"
-            }}>
-              {error}
-            </div>
-          )}
-
-          <button onClick={check} disabled={loading} style={{
-            padding: "10px", background: loading ? "#334155" : "#6366f1",
-            color: "white", border: "none", borderRadius: "7px",
-            fontSize: "13px", fontWeight: 600, cursor: loading ? "default" : "pointer"
-          }}>
-            {loading ? "Analyzing..." : "🔍 Check for hallucinations"}
-          </button>
         </div>
-
-        {/* Results */}
         <div>
           {!result && !loading && (
-            <div style={{
-              background: "#1e293b", border: "1px solid #334155",
-              borderRadius: "10px", padding: "3rem", textAlign: "center",
-              color: "#475569"
-            }}>
-              <div style={{ fontSize: "40px", marginBottom: "12px" }}>🧠</div>
-              <p style={{ margin: 0 }}>Analysis results will appear here</p>
-            </div>
-          )}
-
-          {loading && (
-            <div style={{
-              background: "#1e293b", border: "1px solid #334155",
-              borderRadius: "10px", padding: "3rem", textAlign: "center"
-            }}>
-              <div style={{
-                width: "36px", height: "36px", margin: "0 auto 16px",
-                border: "3px solid #334155", borderTop: "3px solid #6366f1",
-                borderRadius: "50%", animation: "spin 1s linear infinite"
-              }}/>
-              <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-              <p style={{ color: "#94a3b8", margin: 0, fontSize: "13px" }}>
-                Extracting and verifying claims...
-              </p>
-            </div>
-          )}
-
-          {result && (
-            <div style={{
-              background: "#1e293b", border: "1px solid #334155",
-              borderRadius: "10px", overflow: "hidden"
-            }}>
-              {/* Risk banner */}
-              <div style={{
-                padding: "14px 16px",
-                background: riskBg(result.overall_risk),
-                borderBottom: "1px solid #334155"
-              }}>
-                <div style={{ display: "flex", alignItems: "center",
-                              justifyContent: "space-between" }}>
-                  <div>
-                    <span style={{
-                      fontSize: "13px", fontWeight: 700,
-                      color: riskColor(result.overall_risk),
-                      textTransform: "uppercase"
-                    }}>
-                      {result.overall_risk} risk
-                    </span>
-                    <span style={{ fontSize: "12px", color: "#94a3b8", marginLeft: "8px" }}>
-                      Score: {result.hallucination_score?.toFixed(1)}/10
-                    </span>
-                  </div>
-                  <span style={{ fontSize: "12px", color: "#475569" }}>
-                    {result.total_claims} claims analyzed
-                    {" · "}
-                    {result.analysis_time_ms?.toFixed(0)}ms
-                  </span>
-                </div>
-                <p style={{ fontSize: "12px", color: "#94a3b8",
-                            margin: "6px 0 0", lineHeight: 1.5 }}>
-                  {result.summary}
-                </p>
+            <div className="panel" style={{ height: "100%", minHeight: "300px" }}>
+              <div className="panel-accent"/>
+              <div className="empty" style={{ height: "100%" }}>
+                <span className="empty-glyph">⊛</span>
+                <p className="empty-title">ANALYSIS READY</p>
+                <p className="empty-sub">Paste a question and AI response, then run the check</p>
               </div>
-
-              {/* Claims list */}
-              <div style={{ maxHeight: "450px", overflowY: "auto" }}>
-                {result.claims?.length === 0 ? (
-                  <div style={{ padding: "2rem", textAlign: "center", color: "#475569" }}>
-                    No specific claims extracted
+            </div>
+          )}
+          {loading && (
+            <div className="panel" style={{ height: "100%", minHeight: "300px" }}>
+              <div className="panel-accent"/>
+              <div className="empty" style={{ height: "100%" }}>
+                <div style={{ position: "relative", width: 48, height: 48 }}>
+                  <div className="animate-spin" style={{ position: "absolute", inset: 0, border: "1.5px solid var(--b2)", borderTop: "1.5px solid var(--p0)", borderRadius: "50%" }}/>
+                  <div style={{ position: "absolute", inset: 10, border: "1px solid var(--pb)", borderBottom: "1px solid transparent", borderRadius: "50%", animation: "spin 0.5s linear infinite reverse" }}/>
+                </div>
+                <p className="empty-title">EXTRACTING CLAIMS…</p>
+                <p className="empty-sub">Verifying each claim against context</p>
+              </div>
+            </div>
+          )}
+          {result && (
+            <div className="panel" style={{ padding: 0 }}>
+              <div className="panel-accent"/>
+              <div style={{ padding: "14px 16px", background: riskBg(result.overall_risk), borderBottom: "1px solid var(--b1)" }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "6px" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontFamily: "var(--f-mono)", fontSize: "13px", fontWeight: 700, color: riskColor(result.overall_risk), letterSpacing: "0.06em", textTransform: "uppercase" as const }}>{result.overall_risk} risk</span>
+                    <div style={{ padding: "2px 8px", background: "var(--base)", border: `1px solid ${riskBorder(result.overall_risk)}`, borderRadius: "var(--r0)", fontFamily: "var(--f-mono)", fontSize: "10px", color: riskColor(result.overall_risk) }}>{result.hallucination_score?.toFixed(1)}/10</div>
                   </div>
-                ) : result.claims?.map((claim: any, i: number) => (
-                  <div key={i} style={{
-                    padding: "12px 16px",
-                    borderBottom: "1px solid #1e3a5f",
-                    borderLeft: `3px solid ${typeColor(claim.type)}`
-                  }}>
-                    <div style={{ display: "flex", alignItems: "center",
-                                  gap: "8px", marginBottom: "5px" }}>
-                      <span style={{
-                        padding: "2px 7px", borderRadius: "99px",
-                        fontSize: "10px", fontWeight: 600,
-                        color: typeColor(claim.type),
-                        background: "#0f172a",
-                        border: `1px solid ${typeColor(claim.type)}33`
-                      }}>
-                        {claim.type}
-                      </span>
-                      {claim.risk_level !== "low" && (
-                        <span style={{
-                          padding: "2px 7px", borderRadius: "99px",
-                          fontSize: "10px",
-                          color: riskColor(claim.risk_level),
-                          background: riskBg(claim.risk_level)
-                        }}>
-                          {claim.risk_level} risk
-                        </span>
-                      )}
-                    </div>
-                    <p style={{ fontSize: "13px", color: "#e2e8f0",
-                                margin: "0 0 5px", lineHeight: 1.4 }}>
-                      "{claim.text}"
-                    </p>
-                    {claim.evidence && (
-                      <p style={{ fontSize: "11px", color: "#64748b",
-                                  margin: 0, fontStyle: "italic" }}>
-                        {claim.evidence}
-                      </p>
-                    )}
-                  </div>
-                ))}
+                  <span style={{ fontFamily: "var(--f-mono)", fontSize: "8px", color: "var(--t3)" }}>{result.total_claims} claims · {result.analysis_time_ms?.toFixed(0)}ms</span>
+                </div>
+                <p style={{ fontFamily: "var(--f-data)", fontSize: "11px", color: "var(--t2)", margin: 0, lineHeight: 1.6 }}>{result.summary}</p>
+              </div>
+              <div style={{ maxHeight: "420px", overflowY: "auto" }}>
+                {!result.claims?.length
+                  ? <div className="empty" style={{ padding: "2rem" }}><p className="empty-title">NO CLAIMS EXTRACTED</p></div>
+                  : result.claims.map((claim, i) => <ClaimRow key={i} claim={claim}/>)
+                }
               </div>
             </div>
           )}
