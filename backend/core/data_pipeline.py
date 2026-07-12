@@ -157,17 +157,17 @@ class DocumentPipeline:
 
         text   = self._load(file_path)
         source = file_path.split("/")[-1]
-        print(f"  Loaded {source}: {len(text)} chars")
+        logger.info(f"Loaded {source}: {len(text)} chars")
 
         chunks = self._paragraph_chunk(text, max_words=400, overlap=50)
-        print(f"  Chunked into {len(chunks)} pieces")
+        logger.info(f"Chunked into {len(chunks)} pieces")
 
         all_embeddings = []
         batch_size     = 32   # matches embed()'s internal encode batch_size
         for i in range(0, len(chunks), batch_size):
             batch = chunks[i:i + batch_size]
             all_embeddings.extend(_embed_texts([c[:2000] for c in batch]))
-        print(f"  Embedded {len(all_embeddings)} chunks")
+        logger.info(f"Embedded {len(all_embeddings)} chunks")
 
         doc_collection = chroma.get_or_create_collection(f"docs_{project_id}")
         ids, docs, metas = [], [], []
@@ -185,7 +185,7 @@ class DocumentPipeline:
 
         doc_collection.upsert(ids=ids, embeddings=all_embeddings,
                                documents=docs, metadatas=metas)
-        print(f"  Stored in ChromaDB collection 'docs_{project_id}'")
+        logger.info(f"Stored in ChromaDB collection 'docs_{project_id}'")
 
         return {"chunks": len(chunks), "source": source, "doc_type": doc_type}
 

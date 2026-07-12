@@ -64,7 +64,7 @@ python -m pytest tests/test_eval_engine.py -v
 python -m pytest tests/ --cov=. --cov-report=term-missing
 ```
 
-All 76 tests must pass before submitting a PR. The CI will check this automatically.
+All 137 tests must pass before submitting a PR. The CI will check this automatically.
 
 ---
 
