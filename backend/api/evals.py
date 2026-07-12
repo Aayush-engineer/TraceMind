@@ -28,7 +28,7 @@ class RunEvalRequest(BaseModel):
     judge_criteria: List[str] = ["quality", "accuracy", "completeness"]
     system_prompt:  Optional[str] = None
     git_commit:     Optional[str] = None
-    max_concurrent: int = 5
+    max_concurrent: int = 2
     webhook_url:    Optional[str] = None
 
 @router.post("/run")
