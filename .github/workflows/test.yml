@@ -33,8 +33,7 @@ jobs:
       - name: Run integration test
         env:
           GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-          DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
           uvicorn backend.main:app --port 8000 &
           sleep 8
-          python backend/tests/test_complete_backend.py http://localhost:8000
+          python verify_all.py http://localhost:8000
