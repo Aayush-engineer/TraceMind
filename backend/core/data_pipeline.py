@@ -1,11 +1,15 @@
 import asyncio
 import json
+import logging
 import time
 import hashlib
 from typing import AsyncGenerator
 import chromadb
 from .config import CHROMA_DIR
 from .llm import embed as _embed_texts
+
+logger = logging.getLogger(__name__)
+
 chroma = chromadb.PersistentClient(path=CHROMA_DIR)
 
 trace_collection   = chroma.get_or_create_collection("production_traces")

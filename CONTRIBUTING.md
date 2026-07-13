@@ -46,7 +46,7 @@ npm run dev
 # 5. Verify everything works
 cd ..
 python verify_all.py
-# Must show: 44/44 — 100%
+# Must show: 44/44 -- 100% (verify_all.py) and 137 passed (pytest)
 ```
 
 ---
